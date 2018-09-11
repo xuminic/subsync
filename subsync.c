@@ -221,6 +221,8 @@ int main(int argc, char **argv)
 		fclose(fout);
 	}
 
+	/* 20180912 Using Unix trick to preserve the backup file
+	 * Hope it's portable to Windows */
 	for ( ; argc; argc--, argv++) {
 		if ((fin = fopen(*argv, "r")) == NULL) {
 			perror(*argv);
@@ -230,12 +232,17 @@ int main(int argc, char **argv)
 			fclose(fin);
 			continue;
 		}
-		strcpy(oname, "tmp_");
-		strcat(oname, *argv);
+		strcpy(oname, *argv);
 		strcat(oname, ".bak");
 
-		if ((fout = fopen(oname, "w")) == NULL) {
-			perror(oname);
+		/* rename the original file now since the actual content are 
+		 * still accessible via the file handler. */
+		rename(*argv, oname);
+
+		/* create the output file by its original name, though it
+		 * has different i-node to the input file */
+		if ((fout = fopen(*argv, "w")) == NULL) {
+			perror(*argv);
 			free(oname);
 			fclose(fin);
 			continue;
@@ -244,12 +251,9 @@ int main(int argc, char **argv)
 		fclose(fout);
 		fclose(fin);
 
-		if (tm_overwrite == 2) {
-			rename(*argv, oname + 4);
-		} else {
-			unlink(*argv);
+		if (tm_overwrite == 1) {
+			unlink(oname);
 		}
-		rename(oname, *argv);
 		free(oname);
 	}
 	return 0;
