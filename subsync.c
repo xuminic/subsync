@@ -52,7 +52,7 @@ OFFSET:\n\
   Time stamp offset; the prefix '+' or '-' defines delay or bring forward.\n\
   It can be defined by milliseconds: +19700, -10000\n\
   or by time stamp noting HH:MM:SS.MS: -0:0:10,199, +1:0:12.66\n\
-  or by time stamp substract, the expect time stamp minus the actual\n\
+  or by time stamp subtraction, the expect time stamp minus the actual\n\
   time stamp, for example: +01:44:31,660-01:44:36,290\n\
 SCALE:\n\
   Time stamp scaling ratio; tweak the time stamp from different frame rates,\n\
