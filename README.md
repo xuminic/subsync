@@ -1,6 +1,6 @@
-# Subsync -- Synchronize your subtitles
+# Subsync -- Synchronise your subtitles
 
-Subsync is a command line filter to synchronize the timeline of subtitles.
+Subsync is a command line filter to synchronise the timeline of subtitles.
 It can shift, scale and non-linearly edit the timeline.
 It's simple, fast and easy to be integrated to Shell scripts.
 It supports .srt, .ass and .ssa formats. It's written in C and standard 
@@ -10,11 +10,11 @@ Linux, BSD, Cygwin, etc.
 ## Motivation
 
 I had a couple of old TV shows and out-of-sync .srt files searched from websites. 
-I knew the structure of .srt was quite simple so theoratically a small filter 
-program can do the trick: filter out the time stamps, do some primary schooltime
+I knew the structure of .srt was quite simple so theoretically a small filter 
+program can do the trick: filter out the time stamps, do some primary school-time
 mathematics, output back to the stream. 
 To my surprise I couldn't find a command line tool to do it properly.
-Something were either too fancy with a heavy GUI interfce, or too poor written 
+Something were either too fancy with a heavy GUI interface, or too poor written 
 by Shell scripts to do the basic calculation, especially to scale the timeline.
 Finally I decided to write one for my own needs. It might be reinventing the 
 wheels. But come on, it costs only a handful hundred lines and a Sunday morning.
@@ -123,7 +123,7 @@ To simplify the calculation, subsync supports subtraction statement
 by the expected time stamp subtracting the misaligned time stamp. 
 For example, you randomly pick up a line of subtitle in the subtitle file. 
 The time stamp was written `0:11:00,140`. It's the misaligned time stamp.
-The corresponding line in the video accutely sounds at `00:00:52,570`. 
+The corresponding line in the video actually sounds at `00:00:52,570`. 
 It's the expected time stamp. You don't have to calculate the time difference
 but simply using the formula `expected-time-stamp - misaligned-time-stamp`:
 
@@ -131,32 +131,36 @@ but simply using the formula `expected-time-stamp - misaligned-time-stamp`:
 subsync +00:00:52,570-0:11:00,140 source.ass > target.ass
 ```
 
-subsync will do the calculating itself. Nevermind the `+` character in the expression.
-It's just an option switch. You may use
+subsync will do the calculating itself. 
+Never mind the `+` character in the expression.
+It's just an option switch. You may also use
 
 ```
 subsync -00:00:52,570-0:11:00,140 source.ass > target.ass
 ```
 
-They are identical. 
+because they are practically the same. 
 
-Note that there is a minor difference of the time stamps between `.srt` and `.ass`.
-The `.srt` uses like `00:10:07,570`, where the `570` after comma is milliseconds.
-On the other hand the `.ass` is like `00:10:07.57`, where the `57` after dot is 
-in unit of 10 milliseconds. Subsync accepts any of them.
+Note that there is a minor difference of the time stamps between `.srt` 
+and `.ass`. The `.srt` format is like `00:10:07,570`, where the `570` 
+after comma is milliseconds. On the other hand the `.ass` format is like 
+`00:10:07.57`, where the `57` after dot is in unit of 10 milliseconds. 
+Subsync accepts any of them.
 
 ## HOWTO: Scale Timeline
 
-In some scenario shifting timeline won't have it synchronized. You may find some videos
-had synchronized subtitle in the beginning but drifted away in the end. The offset can vary 
-from a couple of seconds to 4 or more minutes. It mostly caused by different frame rates.
-For example, your subtitle was ripped from a PAL based video but is wished to match to a 
-NTSC video. Obviously the frame rate is 25 against 30. Sometimes it can be more subtle, 
-like video had been ripped as 24 fps but subtitle was 23.976. They are both 24 fps but 
-you may find some seconds delay, which is quite annoying. 
+In some scenario shifting timeline won't have it synchronised. 
+You may find some videos had synchronised subtitle in the beginning but 
+drifted away in the end. The offset can vary from seconds to minutes. 
+It mostly caused by different frame rates. Such as your subtitle was ripped 
+from a PAL based video but is about to match a NTSC video. 
+Obviously the frame rate is 25 against 30 fps. 
+Sometimes it became more subtle, like video was 24 fps but subtitle was 23.976. 
+They are all practically 24 fps but you will find some seconds apart, 
+which is quite annoying. 
 
-The cure is to scale the timeline, which is simply multiplying a ratio to every time stamps
-in the subtitle file. For example:
+The cure is to scale the timeline, which is simply multiplying a ratio to 
+every time stamps in the subtitle file. For example:
 
 ```
 subsync -1.000955 source.ass > target.ass
@@ -169,7 +173,7 @@ just a switch; `+1.000955` do the same trick.
 
 The ratio can be manually found by this formula: 
 `expected-time-stamp  / misaligned-time-stamp`.
-Assuming your video and subtitle are synchronized in the beginning, 
+Assuming your video and subtitle are synchronised in the beginning, 
 but the last subtitle line, for example, was found `1:35:26,690`. 
 Yet the scene was actually `01:35:32,160` so the subtitle was drifting forwards. 
 The expected time stamp is `01:35:32,160`, equal to `5732160 milliseconds`. 
@@ -185,14 +189,15 @@ For example by the above arguments:
 subsync -01:35:32,160/1:35:26,690 source.ass > target.ass
 ```
 
-subsync will do the calculating itself. Nevermind the `-` character in the expression.
-It's just an option switch. You may use
+subsync will do the calculating itself. 
+Never mind the `-` character in the expression.
+It's just an option switch. You may also use
 
 ```
 subsync +01:35:32,160/1:35:26,690 source.ass > target.ass
 ```
 
-They are identical.
+because they are practically the same.
 
 
 ## HOWTO: Non-linear Editing
@@ -202,8 +207,8 @@ Sometimes the subtitle need both shifting and scaling.
 Sometimes only part of the subtitles need to be adjusted.
 In extreme situation you may have to use a subtitle editor.
 However if the situation is not that bad, subsync could speed up the process.
-Especially like the TV drama, once you figured out the formula of the first episode,
-it can be quickly applied on other episodes.
+Especially like the TV drama, once you figured out the formula of the first 
+episode, it can be quickly applied to other episodes.
 
 The timeline shifting and scaling can be combined in one command.
 The process order is shifting first, then scaling.
@@ -227,8 +232,8 @@ For example:
 subsync -s 0:01:15.00 1:23:34.00 -00:01:38,880-0:03:02.50 source.ass > target.ass
 ```
 
-Which means starting from 1 minute 15 seconds, ending at 1 hour 23 minutes 34 seconds,
-all subtitle time stamp will be brought forward 83.62 seconds.
+Which means starting from 1 minute 15 seconds, ending at 1 hour 23 minutes 34 
+seconds, all subtitle time stamp will be brought forward 83.62 seconds.
 
 
 ## HOWTO: Batch Process
@@ -249,6 +254,8 @@ Please keep in mind that backup your original files before the timeline
 were totally steins-gated.
 
 ## Usage Examples
+
+The Chinese translation can be found at [here](https://quickthinknotes.blogspot.com/2018/01/linux.html).
 
 ### EVA3.3 Theatrical Edition
 
@@ -271,7 +278,7 @@ The corresponding part in subtitle file is
 Dialogue: 0,0:11:00.14,0:11:02.98,Default,,0,0,0,,追踪班 报告两机体现在的位置
 ```
 
-Using subsync to calculate the differece:
+Using subsync to calculate the difference:
 
 ```
 $ subsync --help-sub 00:00:52,570 0:11:00.14
@@ -284,7 +291,7 @@ Manually delete the 巨神兵 scene in the subtitle file first. Then
 $ subsync -00:10:07,570 00002.v1.11_FINAL.ass > 001.ass
 ```
 
-Tried this subtitle, it was sync-ed in the beginnging then drafted away.
+Tried this subtitle, it was sync-ed in the beginning then drafted away.
 Apparently it was also needed scaling. 
 Went to the end part of the video, found the last talk at `01:35:32,160`, 
 `The Wunder streaks through the sky`. The corresponding part in subtitle file is
