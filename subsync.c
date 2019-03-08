@@ -40,7 +40,7 @@ char	*subsync_help = "\
 usage: subsync [OPTION] [sutitle_file]\n\
 OPTION:\n\
   -c, --chop N:M        chop the specified number of subtitles (from 1)\n\
-  -o,/--overwrite       overwrite the original file (/with backup file)\n\
+  -o, --overwrite       overwrite the original file (latter has backup file)\n\
   -r, --reorder [NUM]   reorder the serial number (SRT only)\n\
   -s, --span TIME ...   specifies the span of the time stamps for processing\n\
   -w, --write FILENAME  write to the specified file\n\

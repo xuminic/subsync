@@ -1,0 +1,213 @@
+.TH NAME SECTION
+.SH Name
+subsync \- synchronise video and subtitle
+
+.SH SYNOPSIS
+.B subsync
+.I [OPTIONS] [subtitle_files]  
+
+.SH DESCRIPTION
+.BR Subsync
+is a simple and quick command line tool written in C and standard libraries
+to synchronise videos and subtitles. It supports 
+.I .srt , 
+.I .ass 
+and 
+.I .ssa 
+formats. It can shift, scale and non-linearly process the timeline in subtitle files.
+
+.SH OPTIONS
+.TP
+.BR \-c , " \-\-chop"
+chop the specified number of subtitles. The followed argument
+.I N:M
+defines chopping range of the start index and the end index, separated by colon(:).
+The index counts from 1 and the chopping range includes the start and end index.
+The index indicates each line of subtitles with time stamps.
+
+.TP
+.BR \-o , " \-\-overwrite"
+output to the original subtitle files so have them overwritten. The latter
+.I --overwrite
+allows a backup file.
+
+.TP
+.BR \-r , "\-\-reorder"
+reorder the serial number in
+.I .srt
+files. The followed argument defines the start number. 
+When specified,
+.B subsync
+will discard the original serial number and generate new numbers in ascending order.
+
+.TP
+.BR \-s , "\-\-span
+specifies the range of the time for processing. When specified,
+.B subsync
+will only process the subtitle inside this range.
+The followed argument defines the start time stamp. 
+It can be in milliseconds or in
+.I HH:MM:SS.MS
+format. The second argument is optional, which indicates the end time stamp.
+If the second argument is not specified, the default ending is the end of file.
+
+
+.TP
+.BR \-w , " \-\-write"
+specifies the output file after synchronising. 
+Otherwise the contents will be sent to the terminal.
+
+.TP
+.BR "\-OFFSET", " \+OFFSET"
+specifies the expecting offset of the timeline.
+It can be in milliseconds or in
+.I HH:MM:SS.MS
+format.
+When the option begins with a positive sign
+.B (\+)
+all time stamps in the file will be added by this offset, 
+so subtitles will be 
+.B postponed .
+When the option begins with a negative sign
+.B (\-)
+all time stamps in the file will be subtracted by this offset, 
+so subtitles will be 
+.B advanced .
+However when
+.I "\-OFFSET"
+is in 
+.B subtraction statement 
+by form of
+.I "\-expected_timestamp-misaligned_timestamp" ,
+the shifting direction is decided by the calculation of the statement.
+
+
+.TP
+.BR "\-SCALE"
+specifies the scale ratio of the timeline.
+It must be given as a real number with a point or a 
+.B dividing statement
+to distinguish from the 
+.I "\-OFFSET"
+option. When specified,
+.B subsync
+will have all time stamps in the file been multiplied by this scale ratio.
+Therefore when the ratio is greater than 1, the timeline prolongs; 
+when the ratio is less than 1, the timeline shortens. 
+.B Subsync
+ignores the positive or negative sign in this option.
+
+
+.TP
+.BR "\-\-help" , " \-\-version" , " \-\-help\-example"
+Helps and examples.
+
+.TP
+.BR "\-\-help\-subtract"
+calculate the time offset.
+Debug purpose but might be useful.
+
+.TP
+.BR "\-\-help\-divide"
+calculate the scale ratio of time stamps.
+Debug purpose but might be useful.
+
+.TP
+.BR "\-\-help\-strtoms"
+test reading the time stamps.
+Debug purpose but might be useful.
+
+
+.SH "TIME STAMP"
+.B Subsync
+supports three forms of time stamp in its parameters.
+The
+.I millisecond
+is most simple and most unreadable. The
+.I .srt
+format is like 
+.I 00:10:07,570 ,
+each field represents hour, minute, second and millisecond.
+The millisecond field is delimited by the comma and the unit is
+.B 1 ms .
+The counterpart in format of
+.I .ass/.ssa
+is 
+.I 00:10:07.57 , 
+each field represents hour, minute, second and millisecond.
+The millisecond field is delimited by the point and the unit is
+.B 10 ms .
+
+
+.SH COPYING
+This is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+.SH BUGS
+Please send bug reports to "Andy Xuming" <xuming@users.sourceforge.net>
+
+
+.SH EXAMPLES
+.TP
+.B subsync +12000 source.ass > target.ass
+Shift the subtitles backwards by 12 seconds.
+
+.TP
+.B cat source.ass | subsync -00:10:07,570 -w target.ass
+Bring forward the subtitles by 607570 milliseconds,
+which deducted from the
+.I 00:10:07,570 
+parameter. Subtitles are came from pipe and written to file named 
+.I target.ass .
+
+.TP
+.B subsync -1.000955 -w target.ass source.ass
+Scale the timeline by the ratio 
+.B 1.000955
+so the subtitles will be prolonged evenly.
+
+.TP
+.B subsync +00:00:52,570-0:11:00,140 source.ass > target.ass
+Shift the timeline by the
+.I subtraction statement .
+The first timestamp is the expected time in the video.
+The second timestamp is the misaligned time in the subtitle file.
+
+
+.TP
+.B subsync -01:35:32,160/1:35:26,690 source.ass > target.ass
+Scale the timeline by the
+.I dividing statement .
+The first timestamp is the expected time in the video.
+The second timestamp is the misaligned time in the subtitle file.
+Both timestamps come from the last subtitle in the file.
+
+.TP
+.B subsync -01:35:32,160/1:35:26,690 +00:00:52,570-0:11:00,140 source.ass
+Shift then scale the timeline by combining the
+.I subtraction statement
+and
+.I dividing statement .
+The order of options in command line is irrelevant.
+
+.TP
+.B subsync -s 0:01:15.00 -00:01:38,880-0:03:02.50 -o *.srt
+Shift the timeline from 1 minute 15 seconds to the end by the
+.I subtraction statement
+for all 
+.B .srt
+files in the current directory. 
+The results will overwrite the originals.
+
+
