@@ -114,7 +114,7 @@ static time_t strtoms(char *s, int *len, int *style);
 static char *mstostr(time_t ms, int style);
 static double arg_scale(char *s);
 static time_t arg_offset(char *s);
-static int isnumber(char *s);
+static int is_number(char *s);
 static int help_tools(int argc, char **argv);
 static void test_str_to_ms(void);
 
@@ -151,7 +151,7 @@ int main(int argc, char **argv)
 				tm_chop[0] = tm_chop[1] = -1;
 			}
 		} else if (!strcmp(*argv, "-r") || !strcmp(*argv, "--reorder")) {
-			if ((argc > 0) && isnumber(argv[1])) {
+			if ((argc > 0) && is_number(argv[1])) {
 				--argc;	tm_srtsn = (int)strtol(*++argv, NULL, 0);
 			} else {
 				tm_srtsn = 1;	/* set as default */
@@ -320,7 +320,7 @@ static int retiming(FILE *fin, FILE *fout)
 			s += n;
 			/* output the tweaked timestamp */
 			fputs(mstostr(tweaktime(ms), style), fout);
-		} else if ((srtsn > 0) && isnumber(s)) {
+		} else if ((srtsn > 0) && is_number(s)) {
 			/* SRT serial numbers to be re-ordered */
 			fprintf(fout, "%d", srtsn++);
 			while (isdigit(*s)) s++;
@@ -360,7 +360,7 @@ static int chop_filter(char *s, int *magic)
 
 	switch (*magic) {
 	case 0:			/* subrip */
-		if (isnumber(s)) {
+		if (is_number(s)) {
 			subidx++;
 		}
 		//printf("SRT %d\n", subidx);
@@ -388,7 +388,7 @@ static int chop_filter(char *s, int *magic)
 		if (*magic > 0) {
 			break;	/* something wrong */
 		}
-		if (isnumber(s)) {
+		if (is_number(s)) {
 			*magic = 0;
 			subidx++;
 		} else if (strtoms(s, NULL, NULL) != -1) {       /* SRT timestamp */
@@ -603,7 +603,7 @@ static time_t arg_offset(char *s)
 	return -1;
 }
 
-static int isnumber(char *s)
+static int is_number(char *s)
 {
 	if (!isdigit(*s)) {
 		return 0;
