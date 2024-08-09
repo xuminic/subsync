@@ -134,7 +134,7 @@ int main(int argc, char **argv)
 
 	while (--argc && ((**++argv == '-') || (**argv == '+'))) {
 		if (!strcmp(*argv, "-V") || !strcmp(*argv, "--version")) {
-			printf(subsync_version);
+			printf("%s", subsync_version);
 			return 0;
 		} else if (!strcmp(*argv, "-H") || !strcmp(*argv, "--help")) {
 			puts(subsync_help);
