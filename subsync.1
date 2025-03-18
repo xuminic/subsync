@@ -26,6 +26,25 @@ The index counts from 1 and the chopping range includes the start and end index.
 The index indicates each line of subtitles with time stamps.
 
 .TP
+.BR \-e , " \-\-encoding"
+set default encoding of the input files.
+.B subsync
+normally passthrough the input files to the output files, which means changing
+codepages is not necessary. However, some files encoded by 16-bit or 32-bit units
+would break the libc stream input, like UTF-16 or UTF-32. In that case
+.B subsync
+will convert the input files to UTF-8 before adjusting the subtitles.
+.B subsync
+can auto-detect the encoding of the input file, yet if the BOM were missing,
+you need to specify the default encoding by
+.I \-e , " \-\-encoding"
+option. The encoding character sets is same to the 
+.B iconv(1).
+Use 
+.I iconv " \-\-list"
+to see the full list.
+
+.TP
 .BR \-o , " \-\-overwrite"
 output to the original subtitle files so have them overwritten. The latter
 .I --overwrite
@@ -209,5 +228,15 @@ for all
 .B .srt
 files in the current directory. 
 The results will overwrite the originals.
+
+.TP
+.B subsync -e BIG-5 -s 0:01:15.00 -00:01:38,880-0:03:02.50 -o *.srt
+Mostly same to above, besides it specifies the
+.I BIG-5
+as the default encoding. Thus the input files will be treated as
+.I BIG-5
+encoding and will be converted to
+.I UTF-8
+in the output files.
 
 
