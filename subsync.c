@@ -42,7 +42,7 @@ struct	ScRate	{
 static	char	bom_overflow[8];		/* [0]: number [1]: contents */
 static	char	bom_user_defined[64];
 static	int	utf_index = -1;
-static	iconv_t	utf_iconv;
+static	iconv_t	utf_iconv = (iconv_t) -1;
 
 static	struct	CodePG	{
 	char	magic[4];
@@ -130,7 +130,7 @@ Examples:\n\
     subsync -00:00:01,710-00:01:25,510 -o *.srt\n\
 ";
 
-char	*subsync_version = "Subsync 0.12.0 \
+char	*subsync_version = "Subsync 0.13.0 \
 Copyright (C) 2009-2025  \"Andy Xuming\" <xuming@sourceforge.net>\n\
 This program comes with ABSOLUTELY NO WARRANTY.\n\
 This is free software, and you are welcome to redistribute it under certain\n\
@@ -154,6 +154,7 @@ static time_t tweaktime(time_t ms);
 static int chop_filter(char *s, int *magic);
 static time_t strtoms(char *s, int *len, int *style);
 static char *mstostr(time_t ms, int style);
+static time_t timetoms(int hour, int min, int sec, int msec);
 static double arg_scale(char *s);
 static time_t arg_offset(char *s);
 static int isnumber(char *s);
@@ -275,26 +276,21 @@ int main(int argc, char **argv)
 		fclose(fout);
 	}
 
-	/* 20180912 Using Unix trick to preserve the backup file
-	 * Hope it's portable to Windows */
 	for ( ; argc; argc--, argv++) {
-		if ((fin = fopen(*argv, "r")) == NULL) {
-			perror(*argv);
-			continue;
-		}
 		if ((oname = malloc(strlen(*argv)+16)) == NULL) {
-			fclose(fin);
-			continue;
+			break;
 		}
 		strcpy(oname, *argv);
 		strcat(oname, ".bak");
+		rename(*argv, oname);	/* backup the original first */
 
-		/* rename the original file now since the actual content are 
-		 * still accessible via the file handler. */
-		rename(*argv, oname);
+		if ((fin = fopen(oname, "r")) == NULL) {
+			perror(oname);
+			free(oname);
+			continue;
+		}
 
-		/* create the output file by its original name, though it
-		 * has different i-node to the input file */
+		/* create the output file by its original name */
 		if ((fout = fopen(*argv, "w")) == NULL) {
 			perror(*argv);
 			free(oname);
@@ -309,7 +305,7 @@ int main(int argc, char **argv)
 		fclose(fout);
 		fclose(fin);
 
-		if (tm_overwrite == 1) {
+		if (tm_overwrite == 1) {	/* not required to backup */
 			unlink(oname);
 		}
 		free(oname);
@@ -364,7 +360,7 @@ static int retiming(FILE *fin, FILE *fout)
 			fputs(mstostr(tweaktime(ms), style), fout);
 
 			/* output everything before the second timestamp */
-			while (!isdigit(*s)) fputc(*s++, fout);
+			while (*s && !isdigit(*s)) fputc(*s++, fout);
 			/* read and skip the second timestamp */
 			ms = strtoms(s, &n, &style);
 			s += n;
@@ -379,7 +375,7 @@ static int retiming(FILE *fin, FILE *fout)
 		fputs(s, fout);
 	}
 
-	if (utf_iconv >= 0) {
+	if (utf_iconv != (iconv_t) -1) {
 		iconv_close(utf_iconv);
 	}
 	return 0;
@@ -396,6 +392,7 @@ static int utf_open(FILE *fin, FILE *fout, int cp)
 		/* no codepage specified: default IO */
 		return utf_index;
 	}
+	//printf("utf_open: %d %d\n", utf_index, cp);
 	if (utf_index != cp) {
 		/* different input/output codepage: need iconv */
 		utf_iconv = iconv_open(bom_codepage[cp].iconv_name,
@@ -623,67 +620,85 @@ static int chop_filter(char *s, int *magic)
 	return 0;	/* no skip */
 }
 
+/* "%d : %d : %d , %d%n",    SRT
+ * "%d : %d : %d . %d%n",    ASS/SSA
+ * "%d : %d : %d : %d%n",
+ * "%d . %d . %d . %d%n",
+ * "%d - %d - %d - %d%n",
+ */
+#define ISTMSEP(n)	(((n) == ':') || ((n) == '-') || ((n) == '.') || ((n) == ','))
+
 static time_t strtoms(char *s, int *len, int *style)
 {
-	char	*pattern[] = {
-		"%d : %d : %d , %d%n",		/* SRT */
-		"%d : %d : %d . %d%n",		/* ASS/SSA */
-		"%d : %d : %d : %d%n",
-		"%d . %d . %d . %d%n",
-		"%d - %d - %d - %d%n",
-		NULL };
-	int	i, hour, min, sec, msec, num, type;
+	time_t	rc;
+	char	*sign, *lastpc, *begin = s;
+	int	i, tm[4];
 
-	if (len) {
-		*len = 0;
+	tm[0] = tm[1] = tm[2] = tm[3] = 0;
+	while (isspace(*s)) s++;		/* skip the front whitespace */
+	sign = lastpc = s;
+	if ((*s == '+') || (*s == '-')) {	/* if the sign exists */
+		s++;
 	}
-
-	type = 0;
-	if ((*s == '+') || (*s == '-')) {
-		type = *s++;
-	}
-	for (i = 0; pattern[i]; i++) {
-		if (sscanf(s, pattern[i], &hour, &min, &sec, &msec, &num) == 4) {
+	for (i = 0; i < 4; i++, s++) {
+		while (isspace(*s)) s++;
+		if (ISTMSEP(*s)) {
+			tm[i] = 0;
+		} else if (isdigit(*s)) {
+			tm[i] = (int) strtol(s, &s, 10);
+		} else {
 			break;
 		}
-	}
-	//printf("%s:  %d-%d-%d-%d (%d)\n", s, hour, min, sec, msec, num);
-	if (!pattern[i]) {
-		return -1;	/* parameters not match */
-	}
-	
-	if ((min < 0) || (min > 59)) {
-		return -1;
-	}
-	if ((sec < 0) || (sec > 59)) {
-		return -1;
-	}
-
-	/* special case: ASS/SSA uses centiseconds */
-	if (i == 1) {
-		if ((msec < 0) || (msec > 99)) {
-			return -1;
+		if (len) {
+			*len = (int)(s - begin);
 		}
-		msec *= 10;
-	} else {
-		if ((msec < 0) || (msec > 999)) {
-			return -1;
+		while (isspace(*s)) s++;	/* skip the space between number and puncture */
+		if (!ISTMSEP(*s)) {
+			i++;
+			break;
+		} else if (i < 3) {
+			lastpc = s;
 		}
 	}
 
-	if (len) {
-		*len = num;
+	//printf("%s:  %d-%d-%d-%d (%d)(%c)\n", sign, tm[0], tm[1], tm[2], tm[3], i, *lastpc);
+	switch (i) {
+	case 0:		/* No number, like "abc" */
+		rc = -1;
+		break;
+	case 1:		/* one number with bad ending like "12-B" */
+		rc = tm[0];	/* one number been defined as millisecond */
+		break;
+	case 2:		/* could be 2:3 or 2.3 */
+		if (*lastpc == ':') {	/* Min : Sec */
+			rc = timetoms(0, tm[0], tm[1], 0);
+		} else {
+			rc = timetoms(0, 0, tm[0], 
+					(*lastpc == '.') ? tm[1] * 10 : tm[1]);
+		}
+		break;
+	case 3:		/* could be 1:2:3 or 1:2.3 */
+		if (*lastpc == ':') {	/* Hour : Min : Sec */
+			rc = timetoms(tm[0], tm[1], tm[2], 0);
+		} else {
+			rc = timetoms(0, tm[0], tm[1],
+					(*lastpc == '.') ? tm[2] * 10 : tm[2]);
+		}
+		break;
+	case 4:		/* assumed being Hour : Min : Sec [?] Msec */
+		rc = timetoms(tm[0], tm[1], tm[2],
+				(*lastpc == '.') ? tm[3] * 10 : tm[3]);
+		break;
 	}
+
 	if (style) {
-		*style = i;
+		*style = (*lastpc == '.') ? 1 : 0;
 	}
 
-	/* convert to seconds */
-	sec += hour * 3600 + min * 60;
-	if (type == '-') {
-		return - ((time_t)sec * 1000 + msec);
+	if (*sign == '-') {
+		rc =  - rc;
 	}
-	return (time_t)sec * 1000 + msec;
+	return rc;
 }
 
 static char *mstostr(time_t ms, int style)
@@ -724,6 +739,38 @@ static char *mstostr(time_t ms, int style)
 	}
 	return stmp;
 }
+
+
+static time_t timetoms(int hour, int min, int sec, int msec)
+{
+	time_t	ms;
+
+	if (hour < 0) {
+		return -1;
+	}
+
+	ms = hour * 3600 * 1000;
+
+	/* if hour not given, min is reasonable larger than 60 */
+	if ((min < 0) || ((hour > 0) && (min > 59))) {
+		return -1;
+	} else {
+		ms += min * 60 * 1000;
+	}
+
+	/* if hour and min not given, sec is reasonable larger than 60 */
+	if ((sec < 0) || (((hour > 0) || (min > 0)) && (sec > 59))) {
+		return -1;
+	} else {
+		ms += sec * 1000;
+	}
+
+	if (msec < 0) {
+		return -1;
+	}
+	return ms + msec;
+}
+
 
 /* valid parameters:
  * [+-]N-P, [+-]P-N, [+-]N-C, [+-]C-N, [+-]P-C, [+-]C-P, [+-]0.1234
@@ -919,6 +966,10 @@ static void test_str_to_ms(void)
 		" +12:34:56,789",
 		" + 12:34:56,789",
 		" -12:34:56,789",
+		"+0:0:2.0",
+		"+0:0:2.0:9",
+		"abc",
+		"12abc",
 		"::::",
 		NULL
 	};
