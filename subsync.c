@@ -130,7 +130,7 @@ Examples:\n\
     subsync -00:00:01,710-00:01:25,510 -o *.srt\n\
 ";
 
-char	*subsync_version = "Subsync 0.13.0 \
+char	*subsync_version = "Subsync 0.13.1 \
 Copyright (C) 2009-2025  \"Andy Xuming\" <xuming@sourceforge.net>\n\
 This program comes with ABSOLUTELY NO WARRANTY.\n\
 This is free software, and you are welcome to redistribute it under certain\n\
@@ -219,10 +219,10 @@ int main(int argc, char **argv)
 			}
 		} else if (!strcmp(*argv, "--")) {
 			break;
-		} else if (arg_offset(*argv) != -1) {
-			tm_offset = arg_offset(*argv);
 		} else if (arg_scale(*argv) != 0) {
 			tm_scale = arg_scale(*argv);
+		} else if (arg_offset(*argv) != -1) {
+			tm_offset = arg_offset(*argv);
 		} else {
 			fprintf(stderr, "%s: unknown parameter.\n", *argv);
 			return -1;
@@ -807,7 +807,7 @@ static double arg_scale(char *s)
 		return (double)mf / (double)mt;
 	}
 	/* or it's just a simple real number: 1.2345E12 */
-	if (strchr(s, '.')) {
+	if (!strchr(s, ':') && strchr(s, '.')) {
 		char	*endp;
 
 		tmp = strtod(s, &endp);
@@ -961,6 +961,7 @@ static void test_str_to_ms(void)
 		"1:2:3",
 		"12",
 		"12,3",
+		"12.3",
 		"12,,,345",
 		"  12 : 34 : 56 : 789 ",
 		" +12:34:56,789",
