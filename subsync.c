@@ -130,11 +130,11 @@ Examples:\n\
     subsync -00:00:01,710-00:01:25,510 -o *.srt\n\
 ";
 
-char	*subsync_version = "Subsync 0.13.1 \
+char	*subsync_version = "Subsync %s\n\
 Copyright (C) 2009-2025  \"Andy Xuming\" <xuming@sourceforge.net>\n\
 This program comes with ABSOLUTELY NO WARRANTY.\n\
 This is free software, and you are welcome to redistribute it under certain\n\
-conditions. For details see see `COPYING'.\n";
+conditions. For details see see `LICENSE'.\n";
 
 time_t	tm_offset = 0;
 double	tm_scale = 0.0;
@@ -178,7 +178,7 @@ int main(int argc, char **argv)
 
 	while (--argc && ((**++argv == '-') || (**argv == '+'))) {
 		if (!strcmp(*argv, "-V") || !strcmp(*argv, "--version")) {
-			printf(subsync_version);
+			printf(subsync_version, VERSION);
 			return 0;
 		} else if (!strcmp(*argv, "-H") || !strcmp(*argv, "--help")) {
 			puts(subsync_help);
@@ -721,20 +721,20 @@ static char *mstostr(time_t ms, int style)
 
 	switch (style) {
 	case 1:		/* ASS */
-		sprintf(buf, "%d:%02d:%02d.%02ld", hh, mm, ss, ms / 10);
+		sprintf(buf, "%d:%02d:%02d.%02ld", hh, mm, ss, (long)(ms / 10));
 		break;
 	case 2:
-		sprintf(buf, "%02d:%02d:%02d:%03ld", hh, mm, ss, ms);
+		sprintf(buf, "%02d:%02d:%02d:%03ld", hh, mm, ss, (long)ms);
 		break;
 	case 3:
-		sprintf(buf, "%02d.%02d.%02d.%03ld", hh, mm, ss, ms);
+		sprintf(buf, "%02d.%02d.%02d.%03ld", hh, mm, ss, (long)ms);
 		break;
 	case 4:
-		sprintf(buf, "%02d-%02d-%02d-%03ld", hh, mm, ss, ms);
+		sprintf(buf, "%02d-%02d-%02d-%03ld", hh, mm, ss, (long)ms);
 		break;
 	case 0:		/* SRT */
 	default:
-		sprintf(buf, "%02d:%02d:%02d,%03ld", hh, mm, ss, ms);
+		sprintf(buf, "%02d:%02d:%02d,%03ld", hh, mm, ss, (long)ms);
 		break;
 	}
 	return stmp;
@@ -900,7 +900,7 @@ static int mocker(FILE *fin, char *argv)
 	} else if (!strcmp(argv,  "--mock-lr")) {
 		char	*lrlst[] = { "\xa", "\xa\0", "\xa\0\0\0", "\0\xa", "\0\0\0\xa" };
 		for (n = 0; n < sizeof(lrlst)/sizeof(char*); n++) {
-			printf("LR: %02x (%ld): %s\n", *lrlst[n], sizeof(lrlst[n]),
+			printf("LR: %02x (%ld): %s\n", *lrlst[n], (long)sizeof(lrlst[n]),
 					utf_lr(lrlst[n]) ? "true" : "false");
 		}
 	} else if (!strcmp(argv,  "--mock-readline")) {
@@ -926,7 +926,8 @@ static int help_tools(int argc, char **argv)
 		}
 		ms = arg_offset(argv[1]);
 		ms -= arg_offset(argv[2]);
-		printf("Time difference is %s (%ld ms)\n", mstostr(ms, 0), ms);
+		printf("Time difference is %s (%ld ms)\n", 
+				mstostr(ms, 0), (long)ms);
 	} else if (!strncmp(*argv, "--help-divide", 10)) {
 		if (argc < 3) {
 			fprintf(stderr, "Two time stamps required.\n");
@@ -936,9 +937,10 @@ static int help_tools(int argc, char **argv)
 		tmp = (double)ms / (double)arg_offset(argv[2]);
 		printf("Time scale ratio is %f\n", tmp);
 	} else if (!strcmp(*argv, "--help-debug")) {
-		printf("Time Stamp Offset:   %ld\n", tm_offset);
+		printf("Time Stamp Offset:   %ld\n", (long)tm_offset);
 		printf("Time Stamp Scaling:  %f\n", tm_scale);
-		printf("Time Stamp range:    from %ld to %ld\n", tm_range[0], tm_range[1]);
+		printf("Time Stamp range:    from %ld to %ld\n", 
+				(long)tm_range[0], (long)tm_range[1]);
 		printf("SRT serial Number:   from %d\n", tm_srtsn);
 		printf("Subtitle chopping:   from %d to %d\n", tm_chop[0], tm_chop[1]);
 	} else if (!strcmp(*argv, "--help-example")) {
@@ -977,7 +979,7 @@ static void test_str_to_ms(void)
 
 	for (i = 0; testbl[i]; i++) {
 		ms = strtoms(testbl[i], &n, &style);
-		printf("%s(%d): %s =%ld\n", testbl[i], n, mstostr(ms, style), ms);
+		printf("%s(%d): %s =%ld\n", testbl[i], n, mstostr(ms, style), (long)ms);
 	}
 }
 
