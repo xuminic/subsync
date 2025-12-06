@@ -5,7 +5,7 @@ endif
 
 TARGET  = subsync
 VERSION = 0.13.2
-CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\"
+CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\" -DCFG_LIBICONV
 
 LIBICONV = libiconv-1.18
 ICONV_W32 = -I./$(LIBICONV)_i686/include -L./$(LIBICONV)_i686/lib/.libs
