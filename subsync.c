@@ -24,6 +24,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <iconv.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 struct	ScRate	{
 	char	*id;
@@ -106,6 +108,11 @@ Debug Options:\n\
       --help-strtoms    test reading the time stamps\n\
       --help-debug      display the internal arguments\n\
       --help-example    display the example\n\
+      --mock-bom        detect BOM of the file\n\
+      --mock-encoding   dump the supported BOM list\n\
+      --mock-open       testing utf_open()\n\
+      --mock-lr         testing the line return\n\
+      --mock-readline   testing utf_readline()\n\
 ";
 
 char	*subsync_help_example = "\
@@ -158,6 +165,9 @@ static time_t timetoms(int hour, int min, int sec, int msec);
 static double arg_scale(char *s);
 static time_t arg_offset(char *s);
 static int isnumber(char *s);
+static void utf_dump(void);
+static FILE *safe_open(char *pathname, char *mode, char **nominee);
+static int safe_swapname(const char *fixname, char *dyname);
 static int mocker(FILE *fin, char *argv);
 static int help_tools(int argc, char **argv);
 static void test_str_to_ms(void);
@@ -174,7 +184,7 @@ static void test_str_to_ms(void);
 int main(int argc, char **argv)
 {
 	FILE	*fin = NULL, *fout = NULL;
-	char	*oname, mock_option[32] = "";
+	char	*dyname, mock_option[32] = "", *outname = NULL;
 
 	while (--argc && ((**++argv == '-') || (**argv == '+'))) {
 		if (!strcmp(*argv, "-V") || !strcmp(*argv, "--version")) {
@@ -214,9 +224,7 @@ int main(int argc, char **argv)
 			}
 		} else if (!strcmp(*argv, "-w") || !strcmp(*argv, "--write")) {
 			MOREARG(argc, argv);
-			if ((fout = fopen(*argv, "w")) == NULL) {
-				perror(*argv);
-			}
+			outname = *argv;
 		} else if (!strcmp(*argv, "--")) {
 			break;
 		} else if (arg_scale(*argv) != 0) {
@@ -238,8 +246,10 @@ int main(int argc, char **argv)
 	if ((argc == 0) || !strcmp(*argv, "--")) {
 		if (mock_option[0]) {
 			mocker(stdin, mock_option);
-		} else if (fout == NULL) {
+		} else if (outname == NULL) {
 			retiming(stdin, stdout);
+		} else if ((fout = safe_open(outname, "w", NULL)) == NULL) {
+			perror(outname);
 		} else {
 			retiming(stdin, fout);
 			fclose(fout);
@@ -247,68 +257,38 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	/* don't overwrite but still batch processing 
-	 * what's the point of this ??? */
-	if (!tm_overwrite) {
-		if (fout == NULL) {
-			fout = stdout;
-		}
-		for ( ; argc; argc--, argv++) {
-			if ((fin = fopen(*argv, "r")) == NULL) {
-				perror(*argv);
-				continue;
-			}
-			if (mock_option[0]) {
-	                        mocker(fin, mock_option);
-			} else {
-				retiming(fin, fout);
-			}
-			fclose(fin);
-		}
-		if (fout != stdout) {
-			fclose(fout);
-		}
-		return 0;
-	}
-
-	/* the overwrite option override the write option */
-	if (fout != NULL) {
-		fclose(fout);
-	}
-
+	/* input from the argument list */
 	for ( ; argc; argc--, argv++) {
-		if ((oname = malloc(strlen(*argv)+16)) == NULL) {
-			break;
-		}
-		strcpy(oname, *argv);
-		strcat(oname, ".bak");
-		rename(*argv, oname);	/* backup the original first */
-
-		if ((fin = fopen(oname, "r")) == NULL) {
-			perror(oname);
-			free(oname);
-			continue;
-		}
-
-		/* create the output file by its original name */
-		if ((fout = fopen(*argv, "w")) == NULL) {
+		if ((fin = safe_open(*argv, "r", NULL)) == NULL) {
 			perror(*argv);
-			free(oname);
-			fclose(fin);
 			continue;
 		}
 		if (mock_option[0]) {
-                        mocker(fin, mock_option);
+			mocker(fin, mock_option);
+		} else if (tm_overwrite == 0) {		/* appending mode */
+			if (outname == NULL) {
+				retiming(fin, stdout);
+			} else if ((fout = safe_open(outname, "a", NULL)) == NULL) {
+				perror(outname);
+			} else {
+				retiming(fin, fout);
+				fclose(fout);
+			}
+		} else if ((fout = safe_open(*argv, "w", &dyname)) == NULL) {
+			perror(*argv);
 		} else {
 			retiming(fin, fout);
-		}
-		fclose(fout);
-		fclose(fin);
+			fclose(fin);
+			fclose(fout);
 
-		if (tm_overwrite == 1) {	/* not required to backup */
-			unlink(oname);
+			/* swap the file names so the original file become the backup */
+			if (!safe_swapname(*argv, dyname) && (tm_overwrite == 1)) { 
+				unlink(dyname);		/* no backup */
+			}
+			free(dyname);
+			continue;	/* fin is already closed */
 		}
-		free(oname);
+		fclose(fin);
 	}
 	return 0;
 }
@@ -877,6 +857,91 @@ static void utf_dump(void)
 			bom_codepage[n].endian);
 	}
 }
+
+
+static FILE *safe_open(char *pathname, char *mode, char **nominee)
+{
+	struct	stat	sb;
+	FILE	*fp;
+	char	*xname;
+	int	i, plen;
+
+	if (nominee) {
+		*nominee = NULL;
+	}
+	if ((*mode == 'r') || (*mode == 'a')) {
+		if (stat(pathname, &sb)) {	/* File doesn't exist */
+			if (*mode == 'a') {
+				return fopen(pathname, mode);
+			}
+			return NULL;
+		}
+		if (!S_ISREG(sb.st_mode)) {
+			errno = EACCES;	/* invalid file for reading */
+			return NULL;
+		}
+		return fopen(pathname, mode);
+	}
+	if (*mode != 'w') {
+		errno = EINVAL;
+		return NULL;
+	}
+
+	plen = strlen(pathname);
+	if ((xname = malloc(plen * 2 + 32)) == NULL) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	strcpy(xname, pathname);
+
+	for (i = 0; i < 1000; i++) {
+		if (!stat(xname, &sb)) {
+			/* file exists so we pick up another name */
+			sprintf(xname, "%s.%03d_%s.%03d_%d", 
+					pathname, i, pathname, i, rand());
+			xname[plen + 4] = 0;
+			//fprintf(stderr, "safe_open: [%s][%s]\n", xname, &xname[plen+5]);
+			continue;
+		}
+		if ((fp = fopen(xname, mode)) == NULL) {
+			free(xname);
+		} else if (nominee == NULL) {
+			free(xname);
+		} else {
+			*nominee = xname;	/* caller must free it !! */
+		}
+		return fp;
+	}
+	/* meet the maximum attempts */
+	errno = EEXIST;
+	free(xname);
+	return NULL;
+}
+
+static int safe_swapname(const char *fixname, char *dyname)
+{
+	char	*tmpname;
+
+	tmpname = dyname + strlen(dyname) + 1;
+	//fprintf(stderr, "safe_swapname: [%s][%s]\n", dyname, tmpname);
+
+	if (rename(fixname, tmpname)) {
+		perror(tmpname);
+		return -1;
+	}
+	if (rename(dyname, fixname)) {
+		perror(fixname);
+		/* rollback the previous renaming */
+		rename(tmpname, fixname);
+		return -2;
+	}
+	if (rename(tmpname, dyname)) {
+		perror(dyname);
+		return -3;
+	}
+	return 0;
+}
+
 
 static int mocker(FILE *fin, char *argv)
 {
