@@ -4,7 +4,7 @@ ifeq ($(PREFIX),)
 endif
 
 TARGET  = subsync
-VERSION = 0.13.3
+VERSION = 0.13.4
 CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\" -DCFG_LIBICONV
 
 LIBICONV = libiconv-1.18
