@@ -31,6 +31,8 @@ clean:
 cleanall: clean
 	rm -rf $(LIBICONV)_i686 $(LIBICONV)_x86_64
 
+utf: utf.c
+	gcc $(CFLAGS) -DUTF_MAIN -o $@ $^
 
 install: $(TARGET)
 	install -s $(TARGET) $(PREFIX)/bin
