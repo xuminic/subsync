@@ -21,13 +21,13 @@ typedef struct  _MMTAB  {
 
 
 typedef	struct		_UTFBUF	{
-	iconv_t		ico_decoder;
-	char		decode[64];	/* decode by bom_codepage */
+	iconv_t		cd_dec;
+	char		na_dec[64];	/* decode by bom_codepage */
 	int		width;		/* 1/2/4 */
 	int		endian;		
 
-	iconv_t		ico_encoder;
-	char		*encode;	/* like UTF-16BE for iconv */
+	iconv_t		cd_enc;
+	char		na_enc[64];	/* like UTF-16BE for iconv */
 
 	char		buffer[UTF_MAX_BUF];
 	int		idx;

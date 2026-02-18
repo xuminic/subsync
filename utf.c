@@ -33,6 +33,7 @@ static int bom_endian(char *s, int *width);
 static int magic_length(MMTAB *mtab);
 static int magic_match(MMTAB *mtab, char *s, int len);
 static MMTAB *magic_search(MMTAB *mtab, char *s, int len);
+static int idname(char *s);
 
 #ifdef UTF_MAIN
 static void hexdump(char *prompt, char *s, int len)
@@ -52,7 +53,7 @@ UTFB *utf_open(FILE *fp, char *decode, char *encode)
 		return NULL;
 	}
 	memset(utf, 0, sizeof(UTFB));
-	utf->ico_decoder = utf->ico_encoder = (iconv_t) -1;
+	utf->cd_dec = utf->cd_enc = (iconv_t) -1;
 
 	if (!decode || !*decode) {
 		utf_bom_detect(utf, fp);
@@ -65,17 +66,17 @@ UTFB *utf_open(FILE *fp, char *decode, char *encode)
 	 * to enforce the utf_bom_detect(). But what if there's no BOM in the input?
 	 * In that case, we put the default to "LE" to match the Windows behaviour */
 	if (utf->endian == UTF_TRY_ENDIAN) {
-		strcat(utf->decode, "le");
+		strcat(utf->na_dec, "le");
 	}
 
 		
 	/* if the input source is not UTF-8, we need the iconv to decode
 	 * the source stream to UTF-8 */
-	if (utf->decode[0]) {
-		utf->ico_decoder = iconv_open("UTF-8", utf->decode);
-		if (utf->ico_decoder == (iconv_t) -1) {
+	if (utf->na_dec[0]) {
+		utf->cd_dec = iconv_open("UTF-8", utf->na_dec);
+		if (utf->cd_dec == (iconv_t) -1) {
 			utf_close(utf);
-			fprintf(stderr, "utf_open: decoding %s\n", utf->decode);
+			fprintf(stderr, "utf_open: decoding %s\n", utf->na_dec);
 			return NULL;
 		}
 	}
@@ -88,15 +89,22 @@ UTFB *utf_open(FILE *fp, char *decode, char *encode)
 	/* Note: normally utf-8 doesn't need BOM in case of breaking concatenated
 	 * files. However, Window notepad need a clear BOM to open it */
 	if (encode && *encode) {
-		utf->encode = encode;
+		int	eid = idname(encode);
+
+		StrNCpy(utf->na_enc, encode, sizeof(utf->na_enc));
+		/* if the output target is utf-16 or utf-32 without specifying
+		 * its endianness, we will set it to "LE" for Windows sake */
+		if ((eid == idname("utf16")) || (eid == idname("utf32")) ||
+				(eid == idname("ucs2")) || (eid == idname("ucs4"))) {
+			strcat(utf->na_enc, "le");
+		}
+
 		/* if the output target is not UTF-8, we need the iconv to
 		 * encode the target codepage. 
 		 * Reference to libiconv-1.18/lib/encodings.def */
-		if (strcmp(encode, "CP65001") && strcmp(encode, "cp65001") &&
-				strcmp(encode, "UTF8") && strcmp(encode, "utf8") &&
-				strcmp(encode, "UTF-8") && strcmp(encode, "utf-8")) {
-			utf->ico_encoder = iconv_open(encode, "UTF-8");
-			if (utf->ico_encoder == (iconv_t) -1) {
+		if (strcmp(encode, "CP65001") && (eid != idname("utf8"))) {
+			utf->cd_enc = iconv_open(utf->na_enc, "UTF-8");
+			if (utf->cd_enc == (iconv_t) -1) {
 				utf_close(utf);
 				fprintf(stderr, "utf_open: encoding %s\n", encode);
 				return NULL;
@@ -108,80 +116,69 @@ UTFB *utf_open(FILE *fp, char *decode, char *encode)
 
 void utf_close(UTFB *utf)
 {
-	if (utf->ico_decoder != (iconv_t) -1) {
-		iconv_close(utf->ico_decoder);
+	if (utf->cd_dec != (iconv_t) -1) {
+		iconv_close(utf->cd_dec);
 	}
-	if (utf->ico_encoder != (iconv_t) -1) {
-		iconv_close(utf->ico_encoder);
+	if (utf->cd_enc != (iconv_t) -1) {
+		iconv_close(utf->cd_enc);
 	}
 	free(utf);
 }
 
-/* fixme: utf16/32 never need this */
+/* It normally doesn't produce BOM for utf-8 content. However, if utf-8 
+ * is explicitly specified by "utf->na_enc", it would output the BOM.
+ * For example, Windows notepad may need this */
 int utf_write_bom(UTFB *utf, FILE *fp)
 {
-	char	uname[16], *s;
 	int	i;
 
-	if (!utf->encode) {
+	if (!utf->na_enc[0]) {
 		return -1;
 	}
 
-	if (StrNCmp(utf->encode, "utf") && StrNCmp(utf->encode, "UTF")) {
-		return -2;	/* only UTF outputs BOMs */
-	}
-	strcpy(uname, "UTF-");
-
-	s = utf->encode + ((utf->encode[3] == '-') ? 4 : 3);
-	strcat(uname, s);
-
-	if (*s != '8') {	/* UTF-16 or UTF-32 */
-		s = &uname[strlen(uname)-2];
-		if (*s == 'l') {
-			strcpy(s, "LE");
-		} else if (*s == 'b') {
-			strcpy(s, "BE");
-		} else if (isdigit(*s)) {
-			strcat(s, "LE");	/* would be good in Windows */
-		}
-	}
-
 	for (i = 0; bom_codepage[i].magic; i++) {
-		if (!strcmp(bom_codepage[i].magic_name, uname)) {
+		if (idname(bom_codepage[i].magic_name) == idname(utf->na_enc)) {
 			fwrite(bom_codepage[i].magic, 1, bom_codepage[i].magic_len, fp);
 			return 0;
 		}
 	}
-	return -3;
+	return -2;
 }
 
 int utf_puts(UTFB *utf, FILE *fp, char *buf)
 {
-	size_t	in_bytes_left, out_bytes_left;
-	char	*out_buf;
+	size_t	n, rc, inlft, outlft;
+	char	*inbuf, *outbuf, lbuf[64];
 
-	if (utf->ico_encoder == (iconv_t) -1) {
+	if (utf->cd_enc == (iconv_t) -1) {
 		return fputs(buf, fp);
 	}
 
-	in_bytes_left  = strlen(buf);
-	out_bytes_left = sizeof(utf->buffer);
-	out_buf = utf->buffer;
-	if (iconv(utf->ico_encoder, &buf, &in_bytes_left, &out_buf, &out_bytes_left) < 0) {
-		perror("utf_puts");
-		return EOF;
+	inbuf = buf;
+	inlft = strlen(buf);
+	while (inlft > 0) {
+		outlft = sizeof(lbuf);
+		outbuf = lbuf;
+		rc = iconv(utf->cd_enc, &inbuf, &inlft, &outbuf, &outlft);
+		if ((n = sizeof(lbuf) - outlft) > 0) {
+			fwrite(lbuf, 1, n, fp);
+		}
+		if (rc == (size_t) -1) {
+			if (errno == EILSEQ) {	/* illegal character */
+				inbuf++, inlft--;	/* skip one char and try again */
+			} else if ((errno != EINVAL) && (errno != E2BIG)) {
+				break;	/* fatal error */
+			}
+		}
 	}
-
-	in_bytes_left = sizeof(utf->buffer) - out_bytes_left;
-	fwrite(utf->buffer, 1, in_bytes_left, fp);
-	return (int) in_bytes_left;
+	return (int)(strlen(buf) - inlft);
 }
 
 char *utf_gets(UTFB *utf, FILE *fp, char *buf, int len)
 {
 	int	i;
 
-	if (!utf->decode[0]) {	/* default / utf-8 */
+	if (!utf->na_dec[0]) {	/* default / utf-8 */
 		if (utf->idx == 0) {	/* no buffered BOM reading */
 			return fgets(buf, len, fp);
 		}
@@ -261,7 +258,7 @@ static char *utf_decoding(UTFB *utf, char *buf, int len)
 	utf->idx = 0;
 	hexdump("utf_decoding: ", utf->buffer, in_bytes_left);
 
-	if (iconv(utf->ico_decoder, &in_buf, &in_bytes_left, &out_buf, &out_bytes_left) < 0) {
+	if (iconv(utf->cd_dec, &in_buf, &in_bytes_left, &out_buf, &out_bytes_left) < 0) {
 		perror("utf_decoding");
 		return NULL;
 	}
@@ -274,7 +271,7 @@ static int utf_equal(UTFB *utf, char *s, int ch)
 {
 	char	rune[4];
 
-	if ((utf->decode[0] == 0) || (utf->width == 1)) {
+	if ((utf->na_dec[0] == 0) || (utf->width == 1)) {
 		return (*s == (char) ch);
 	}
 
@@ -321,14 +318,14 @@ static int utf_bom_detect(UTFB *utf, FILE *fp)
 	/* no need to offset the BOM because iconv will take it off */
 	utf->endian = bom_endian(mtab->magic_name, &utf->width);
 
-	/* We don't change utf->decode if it's already set.
+	/* We don't change utf->na_dec if it's already set.
 	 * We also ignore UTF-8 because it's default setting. */
-	if (!utf->decode[0] && strcmp(mtab->magic_name, "UTF-8")) {
-		StrNCpy(utf->decode, mtab->magic_name, sizeof(utf->decode));
+	if (!utf->na_dec[0] && strcmp(mtab->magic_name, "UTF-8")) {
+		StrNCpy(utf->na_dec, mtab->magic_name, sizeof(utf->na_dec));
 		/* since the BOM is included in the input stream,
 		 * we must NOT specify the endianness in the iconv name,
 		 * otherwise iconv will produce double BOM output */
-		utf->decode[strlen(utf->decode) - 2] = 0;
+		utf->na_dec[strlen(utf->na_dec) - 2] = 0;
 	}
 	return 0;
 }
@@ -344,16 +341,15 @@ static int utf_user_defined(UTFB *utf, char *s)
 	}
 	iconv_close(tmp_iconv);
 
-	StrNCpy(utf->decode, s, sizeof(utf->decode));
-	if (StrNCmp(s, "UTF") && StrNCmp(s, "utf") &&
-			StrNCmp(s, "UCS") && StrNCmp(s, "ucs")) {
+	StrNCpy(utf->na_dec, s, sizeof(utf->na_dec));
+	if (idname(s) < 0) {
 		return 0;
 	}
-	if ((s[3] == '7') || (s[4] == '7')) {	/* UTF-7 */
+	if (idname(s) == idname("utf7")) {
 		return 0;
 	}
-	if ((s[3] == '8') || (s[4] == '8')) {	/* UTF-8 */
-		utf->decode[0] = 0;	/* We ignore UTF-8 setting */
+	if (idname(s) == idname("utf8")) {
+		utf->na_dec[0] = 0;	/* We ignore UTF-8 setting */
 		return 0;
 	}
 
@@ -436,6 +432,43 @@ static MMTAB *magic_search(MMTAB *mtab, char *s, int len)
 	return lidx < 0 ? NULL : &mtab[lidx];
 }
 
+/* convert UTF/UCS name to ID number
+ * bit 0-3: width 0=under 8-bit 1=8-bit 2=16-bit 3=32-bit
+ * bit 4-7: endianness 0=autodetect 1=LE 2=BE
+ * bit 8+:  name 0=UTF 1=UCS 2=MORE
+ */
+static int idname(char *s)
+{
+	int	id = 0;
+
+	if (!StrNCmp(s, "ucs") || !StrNCmp(s, "UCS")) {
+		id |= 0x100;
+		s += (s[3] == '-') ? 4 : 3;
+	} else if (!StrNCmp(s, "utf") || !StrNCmp(s, "UTF")) {
+		s += (s[3] == '-') ? 4 : 3;
+	} else {
+		return -1;	/* unsupported name */
+	}
+	if (!StrNCmp(s, "8")) {
+		id |= 1; s++;		/* utf-8 */
+	} else if (!StrNCmp(s, "2")) {
+		id |= 2, s++;		/* ucs-2 */
+	} else if (!StrNCmp(s, "16")) {
+		id |= 2, s += 2;	/* utf-16 */
+	} else if (!StrNCmp(s, "4")) {
+		id |= 3, s++;		/* ucs-4 */
+	} else if (!StrNCmp(s, "32")) {
+		id |= 3, s += 2;	/* utf-32 */
+	}
+	while (isdigit(*s)) s++;	/* skip other numbers, like 7 */
+
+	if (!StrNCmp(s, "le") || !StrNCmp(s, "LE")) {
+		id |= 0x10;
+	} else if (!StrNCmp(s, "be") || !StrNCmp(s, "BE")) {
+		id |= 0x20;
+	}
+	return id;
+}
 
 #ifdef	UTF_MAIN
 
@@ -449,12 +482,12 @@ static MMTAB *magic_search(MMTAB *mtab, char *s, int len)
 
 static void dump_utfb(UTFB *utf) 
 {
-	printf("iconv decoder:          %p\n", utf->ico_decoder);
-	printf("iconv decode name:      %s\n", utf->decode[0] ? utf->decode : "unknown");
+	printf("iconv decoder:          %p\n", utf->cd_dec);
+	printf("iconv decode name:      %s\n", utf->na_dec[0] ? utf->na_dec : "unknown");
 	printf("iconv decode width:     %d\n", utf->width);
 	printf("iconv decode endian:    %d\n", utf->endian);
-	printf("iconv encoder:          %p\n", utf->ico_encoder);
-	printf("iconv encode name:      %s\n", utf->encode ? utf->encode : "unknown");
+	printf("iconv encoder:          %p\n", utf->cd_enc);
+	printf("iconv encode name:      %s\n", utf->na_enc[0] ? utf->na_enc : "unknown");
 	printf("buffer overflow:        %d (0x%x)\n", utf->idx, utf->buffer[0]);
 }
 
@@ -496,7 +529,7 @@ static int test_utf_bom_detect(void)
 	utf = utf_open(stdin, "UTF-8", NULL);	
 	for (i = 0; magics[i]; i++) {
 		mock_getc((FILE *) magics[i]);
-		utf->decode[0] = 0;
+		utf->na_dec[0] = 0;
 		utf_bom_detect(utf, NULL);
 		memset(display, ' ', sizeof(display));
 		for (k = 0; k < utf->idx; k++) {
@@ -505,7 +538,7 @@ static int test_utf_bom_detect(void)
 		}
 		display[24] = 0;
 		printf("%s %-12s %d %d\n", display, 
-				utf->decode[0] ? utf->decode : "unknown",
+				utf->na_dec[0] ? utf->na_dec : "unknown",
 				utf->width, utf->endian);
 	}
 	utf_close(utf);
@@ -592,7 +625,7 @@ static int test_iconv_stream(char *decode, FILE *fin, FILE *fout)
 		while (inbytes > 0) {
 			outbuf = lbuf;
 			outbytes = sizeof(lbuf);
-			rc = iconv(utf->ico_decoder, &inbuf, &inbytes, &outbuf, &outbytes);
+			rc = iconv(utf->cd_dec, &inbuf, &inbytes, &outbuf, &outbytes);
 			if ((prod = (sizeof(lbuf) - outbytes)) > 0) {
 				fwrite(lbuf, 1, prod, fout);
 			}
@@ -600,7 +633,7 @@ static int test_iconv_stream(char *decode, FILE *fin, FILE *fout)
 				break;
 			}
 
-			perror(utf->decode);
+			perror(utf->na_dec);
 			switch (errno) {
 			case EINVAL:	/* incomplete codepoint; need more fread */
 				goto got_EINVAL;
@@ -623,12 +656,27 @@ got_EINVAL:
 got_FATAL:
 	outbuf = lbuf;
 	outbytes = sizeof(lbuf);
-	iconv(utf->ico_decoder, NULL, NULL, &outbuf, &outbytes);
+	iconv(utf->cd_dec, NULL, NULL, &outbuf, &outbytes);
 	if ((prod = (sizeof(lbuf) - outbytes)) > 0) {
 		fwrite(lbuf, 1, prod, fout);
 	}
 	if (inbytes > 0) {
 		fwrite("\xEF\xBF\xBD", 1, 3, fout);
+	}
+	utf_close(utf);
+	return 0;
+}
+
+
+static int test_utf_iconv(char *decode, char *encode, FILE *fin, FILE *fout)
+{
+	UTFB	*utf;
+	char	buf[256];
+
+	utf = utf_open(fin, decode, encode);
+	utf_write_bom(utf, fout);
+	while (utf_gets(utf, fin, buf, sizeof(buf))) {
+		utf_puts(utf, fout, buf);
 	}
 	utf_close(utf);
 	return 0;
@@ -665,10 +713,16 @@ int main(int argc, char **argv)
 		} else if (!strcmp(*argv, "-e") || !strcmp(*argv, "--encode")) {
 			MOREARG(argc, argv);
 			enc = *argv;
+		} else if (!strcmp(*argv, "--id")) {
+			MOREARG(argc, argv);
+			printf("0x%x\n", idname(*argv));
+			return 0;
 		} else if (!strcmp(*argv, "-g") || !strcmp(*argv, "--gets")) {
 			return test_utf_gets(dec);
 		} else if (!strcmp(*argv, "-i") || !strcmp(*argv, "--iconv")) {
 			return test_iconv_stream(dec, stdin, stdout);
+		} else if (!strcmp(*argv, "-u") || !strcmp(*argv, "--utf")) {
+			return test_utf_iconv(dec, enc, stdin, stdout);
 		} else {
 			fprintf(stderr, "%s: unknown parameter.\n", *argv);
 			return -1;
