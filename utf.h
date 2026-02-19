@@ -23,15 +23,22 @@ typedef struct  _MMTAB  {
 typedef	struct		_UTFBUF	{
 	iconv_t		cd_dec;
 	char		na_dec[64];	/* decode by bom_codepage */
-	int		width;		/* 1/2/4 */
-	int		endian;		
 
 	iconv_t		cd_enc;
 	char		na_enc[64];	/* like UTF-16BE for iconv */
 
-	char		buffer[UTF_MAX_BUF];
-	int		idx;
+	char		ibuffer[UTF_MAX_BUF/4];
+	char		*inbuf;
+	size_t		inidx;
+
+	char		obuffer[UTF_MAX_BUF];
+	char		*outbuf;
+	size_t		outidx;
 } UTFB;
+
+#define UTFBUFF(u)	(sizeof((u)->ibuffer) - (u)->inidx)
+#define UTFPROD(u)	(sizeof((u)->obuffer) - (u)->outidx)
+
 
 UTFB *utf_open(FILE *fp, char *decode, char *encode);
 void utf_close(UTFB *utf);
