@@ -15,7 +15,7 @@ all: $(TARGET)
 
 allwin: $(TARGET) libiconv $(TARGET)_i686.exe $(TARGET)_x86_64.exe
 
-$(TARGET): subsync.c
+$(TARGET): subsync.c utf.c
 	gcc $(CFLAGS) -o $@ $^
 
 $(TARGET)_i686.exe: subsync.c

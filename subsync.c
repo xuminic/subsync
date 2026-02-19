@@ -23,9 +23,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <iconv.h>
 #include <sys/stat.h>
 #include <errno.h>
+
+#include "utf.h"
 
 struct	ScRate	{
 	char	*id;
@@ -40,38 +41,12 @@ struct	ScRate	{
 };
 
 
-
-static	char	bom_overflow[8];		/* [0]: number [1]: contents */
-static	char	bom_user_defined[64];
-static	int	utf_index = -1;
-static	iconv_t	utf_iconv = (iconv_t) -1;
-
-static	struct	CodePG	{
-	char	magic[4];
-	int	magic_len;
-	char	*iconv_name;
-	int	width;
-	int	endian;		/* 0: LE  1: BE */
-} bom_codepage[] = {
-	{ "\xEF\xBB\xBF",	3,	"UTF-8",	1, 0 },
-	{ "\xFE\xFF",		2,	"UTF-16BE",	2, 1 },
-	{ "\xFF\xFE",		2,	"UTF-16LE",	2, 0 },
-	{ "\x00\x00\xFE\xFF",	4,	"UTF-32BE",	4, 1 },
-	{ "\xFF\xFE\x00\x00",	4,	"UTF-32LE",	4, 0 },
-	{ "\x2B\x2F\x76",	3,	"UTF-7",	1, 0 },
-	{ "\xF7\x64\x4C",	3,	"UTF-1",	1, 0 },
-	{ "\xDD\x73\x66\x73",	4,	"UTF-EBCDIC",	1, 0 },
-	{ "\x84\x31\x95\x33",	4,	"GB18030",	1, 0 },
-	{ "", 0, bom_user_defined, 1, 0 }
-};
-#define BOMLEN	(sizeof(bom_codepage)/sizeof(struct CodePG) - 1)
-
-
 char	*subsync_help = "\
 usage: subsync [OPTION] [sutitle_file]\n\
 OPTION:\n\
   -c, --chop N:M         chop the specified number of subtitles (from 1)\n\
-  -e, --encoding ENCODE  default encoding (iconv name)\n\
+  -d, --decoding DECODE  specifies the decoding (iconv name)\n\
+  -e, --encoding ENCODE  specifies the encoding (iconv name)\n\
   -o                     overwrite the original file (no backup file)\n\
       --overwrite        overwrite the original file (has backup file)\n\
   -r, --reorder [NUM]    reorder the serial number (SRT only)\n\
@@ -150,13 +125,10 @@ int	tm_chop[2] = { -1, -1 };
 int	tm_srtsn = -1;		/* -1: not to orderize SRT sn  */
 int	tm_overwrite = 0;	/* 1: overwrite  2: overwrite and backup */
 
+char	*g_decode = NULL;
+char	*g_encode = NULL;
 
 static int retiming(FILE *fin, FILE *fout);
-static int utf_open(FILE *fin, FILE *fout, int cp);
-static int utf_readline(FILE *fin, char *buf, int len);
-static int utf_lr(char *s);
-static int utf_bom_detect(FILE *fin);
-static int utf_bom_user_defined(char *s);
 static time_t tweaktime(time_t ms);
 static int chop_filter(char *s, int *magic);
 static time_t strtoms(char *s, int *len, int *style);
@@ -165,10 +137,8 @@ static time_t timetoms(int hour, int min, int sec, int msec);
 static double arg_scale(char *s);
 static time_t arg_offset(char *s);
 static int is_number(char *s);
-static void utf_dump(void);
 static FILE *safe_open(char *pathname, char *mode, char **nominee);
 static int safe_swapname(const char *fixname, char *dyname);
-static int mocker(FILE *fin, char *argv);
 static int help_tools(int argc, char **argv);
 static void test_str_to_ms(void);
 
@@ -184,7 +154,7 @@ static void test_str_to_ms(void);
 int main(int argc, char **argv)
 {
 	FILE	*fin = NULL, *fout = NULL;
-	char	*dyname, mock_option[32] = "", *outname = NULL;
+	char	*dyname, *outname = NULL;
 
 	while (--argc && ((**++argv == '-') || (**argv == '+'))) {
 		if (!strcmp(*argv, "-V") || !strcmp(*argv, "--version")) {
@@ -195,8 +165,6 @@ int main(int argc, char **argv)
 			return 0;
 		} else if (!strncmp(*argv, "--help-", 7)) {
 			return help_tools(argc, argv);
-		} else if (!strncmp(*argv, "--mock-", 7)) {
-			strncpy(mock_option, *argv, sizeof(mock_option)-1);
 		} else if (!strcmp(*argv, "-o")) {
 			tm_overwrite = 1;	/* no backup */
 		} else if (!strcmp(*argv, "--overwrite")) {
@@ -206,9 +174,12 @@ int main(int argc, char **argv)
 			if (sscanf(*argv, "%d : %d", tm_chop, tm_chop + 1) != 2) {
 				tm_chop[0] = tm_chop[1] = -1;
 			}
+		} else if (!strcmp(*argv, "-d") || !strcmp(*argv, "--decoding")) {
+			MOREARG(argc, argv);
+			g_decode = *argv;
 		} else if (!strcmp(*argv, "-e") || !strcmp(*argv, "--encoding")) {
 			MOREARG(argc, argv);
-			utf_index = utf_bom_user_defined(*argv);
+			g_encode = *argv;
 		} else if (!strcmp(*argv, "-r") || !strcmp(*argv, "--reorder")) {
 			if ((argc > 0) && is_number(argv[1])) {
 				--argc;	tm_srtsn = (int)strtol(*++argv, NULL, 0);
@@ -244,9 +215,7 @@ int main(int argc, char **argv)
 
 	/* input from stdin */
 	if ((argc == 0) || !strcmp(*argv, "--")) {
-		if (mock_option[0]) {
-			mocker(stdin, mock_option);
-		} else if (outname == NULL) {
+		if (outname == NULL) {
 			retiming(stdin, stdout);
 		} else if ((fout = safe_open(outname, "w", NULL)) == NULL) {
 			perror(outname);
@@ -259,13 +228,11 @@ int main(int argc, char **argv)
 
 	/* input from the argument list */
 	for ( ; argc; argc--, argv++) {
-		if ((fin = safe_open(*argv, "r", NULL)) == NULL) {
+		if ((fin = safe_open(*argv, "rb", NULL)) == NULL) {
 			perror(*argv);
 			continue;
 		}
-		if (mock_option[0]) {
-			mocker(fin, mock_option);
-		} else if (tm_overwrite == 0) {		/* appending mode */
+		if (tm_overwrite == 0) {		/* appending mode */
 			if (outname == NULL) {
 				retiming(fin, stdout);
 			} else if ((fout = safe_open(outname, "a", NULL)) == NULL) {
@@ -295,223 +262,78 @@ int main(int argc, char **argv)
 
 static int retiming(FILE *fin, FILE *fout)
 {
-	char	buf[4096], *s;
+	UTFB	*utf;
+	char	buf[4096], *s, *p, tmp[64];
 	time_t	ms;
 	int	n, style, srtsn;
 	int	magic = -1;		/* -1: uncertain 0: SRT 1: SSA */
 
-	utf_open(fin, fout, 0);
+	if ((utf = utf_open(fin, g_decode, g_encode)) == NULL) {
+		return -1;
+	}
+	utf_write_bom(utf, fout);
 
 	srtsn = tm_srtsn;
-	while (utf_readline(fin, buf, sizeof(buf)-1) > 0) {
+	while (utf_gets(utf, fin, buf, sizeof(buf)-1)) {
 		if (chop_filter(buf, &magic)) {
 			continue;	/* skip the specified subtitles */
 		}
 
 		/* skip and output the whitespaces */
-		for (s = buf; (*s > 0) && (*s <= 0x20); s++) fputc(*s, fout);
+		for (s = buf; (*s > 0) && (*s <= 0x20); s++) utf_cache(utf, fout, s, 1);
 		
 		/* SRT: 00:02:17,440 --> 00:02:20,375
 		 * ASS: Dialogue: Marked=0,0:02:42.42,0:02:44.15,Wolf main,
 		 *           autre,0000,0000,0000,,Toujours rien. */
-		if (!strncmp(s, "Dialogue:", 9)) {	/* ASS/SSA timestamp */
+		if (!strncasecmp(s, "Dialogue:", 9)) {	/* ASS/SSA timestamp */
 			/* output everything before the first timestamp */
-			while (*s != ',') fputc(*s++, fout);
+			while (*s != ',') utf_cache(utf, fout, s++, 1);
 			/* output the ',' also */
-			fputc(*s++, fout);
+			utf_cache(utf, fout, s++, 1);
 			/* read and skip the first timestamp */
 			ms = strtoms(s, &n, &style);
 			s += n;
 			/* output the tweaked timestamp */
-			fputs(mstostr(tweaktime(ms), style), fout);
+			p = mstostr(tweaktime(ms), style);
+			utf_cache(utf, fout, p, strlen(p));
 			/* output everything before the second timestamp */
-			while (*s != ',') fputc(*s++, fout);
+			while (*s != ',') utf_cache(utf, fout, s++, 1);
 			/* output the ',' also */
-			fputc(*s++, fout);
+			utf_cache(utf, fout, s++, 1);
 			/* read and skip the second timestamp */
 			ms = strtoms(s, &n, &style);
 			s += n;
 			/* output the tweaked timestamp */
-			fputs(mstostr(tweaktime(ms), style), fout);
+			p = mstostr(tweaktime(ms), style);
+			utf_cache(utf, fout, p, strlen(p));
 		} else if ((ms = strtoms(s, &n, &style)) != -1) {	/* SRT timestamp */
 			/* skip the first timestamp */
 			s += n;
 			/* output the tweaked timestamp */
-			fputs(mstostr(tweaktime(ms), style), fout);
+			p = mstostr(tweaktime(ms), style);
+			utf_cache(utf, fout, p, strlen(p));
 
 			/* output everything before the second timestamp */
-			while (*s && !isdigit(*s)) fputc(*s++, fout);
+			while (*s && !isdigit(*s)) utf_cache(utf, fout, s++, 1);
 			/* read and skip the second timestamp */
 			ms = strtoms(s, &n, &style);
 			s += n;
 			/* output the tweaked timestamp */
-			fputs(mstostr(tweaktime(ms), style), fout);
+			p = mstostr(tweaktime(ms), style);
+			utf_cache(utf, fout, p, strlen(p));
 		} else if ((srtsn > 0) && is_number(s)) {
 			/* SRT serial numbers to be re-ordered */
-			fprintf(fout, "%d", srtsn++);
+			sprintf(tmp, "%d", srtsn++);
+			utf_cache(utf, fout, tmp, strlen(tmp));
 			while (isdigit(*s)) s++;
 		} 
 		/* output rest of things */
-		fputs(s, fout);
+		utf_cache(utf, fout, s, strlen(s));
+		utf_cache(utf, fout, NULL, 0);
 	}
 
-	if (utf_iconv != (iconv_t) -1) {
-		iconv_close(utf_iconv);
-	}
+	utf_close(utf);
 	return 0;
-}
-
-static int utf_open(FILE *fin, FILE *fout, int cp)
-{
-	int	n;
-
-	if ((n = utf_bom_detect(fin)) >= 0) {
-		utf_index = n;
-	}
-	if (utf_index < 0) {
-		/* no codepage specified: default IO */
-		return utf_index;
-	}
-	//printf("utf_open: %d %d\n", utf_index, cp);
-	if (utf_index != cp) {
-		/* different input/output codepage: need iconv */
-		utf_iconv = iconv_open(bom_codepage[cp].iconv_name,
-				bom_codepage[utf_index].iconv_name);
-		if (utf_iconv == (iconv_t) -1) {
-			return utf_index;
-		}
-	}
-
-	/* same input/output codepage or successful iconv, 
-	 * probably need to write a BOM explicity 
-	 * except UTF-8 and User defined codepage */
-	if ((cp > 0) && (cp < BOMLEN)) {
-		fwrite(bom_codepage[cp].magic, 1, 
-				bom_codepage[cp].magic_len, fout);
-	}
-	return utf_index;
-}
-
-static int utf_readline(FILE *fin, char *buf, int len)
-{
-	size_t	in_bytes_left, out_bytes_left;
-	char	rbuf[4090], *in_buf;
-	int	i;
-
-	if ((utf_index < 0) || (bom_codepage[utf_index].width == 1)) {
-		if (bom_overflow[0]) {
-			i = bom_overflow[0];
-			bom_overflow[0] = 0;	/* free the overflow buffer */
-			/* 0xa would stop BOM searching anyway so it must be
-			 * the last item in the BOM overflow buffer */
-			if (bom_overflow[i] == 0xa) {
-				memcpy(buf, &bom_overflow[1], i);
-				buf[i] = 0;
-				return i;
-			}
-			memcpy(rbuf, &bom_overflow[1], i);
-			rbuf[i] = 0;
-			fgets(&rbuf[i], sizeof(rbuf)-i-1, fin);
-		} else if (fgets(rbuf, sizeof(rbuf)-1, fin) == NULL) {
-			return -1;
-		}
-		if (utf_iconv == (iconv_t) -1) {
-			strncpy(buf, rbuf, len - 1);
-			return strlen(buf);
-		}
-		in_bytes_left  = strlen(rbuf);
-		out_bytes_left = len;
-		in_buf = (char*)rbuf;
-		iconv(utf_iconv, &in_buf, &in_bytes_left, &buf, &out_bytes_left);
-		len -= (int)out_bytes_left;
-		*buf = 0;
-		return len;
-	}
-
-	i = 0;
-	while (fread(&rbuf[i], bom_codepage[utf_index].width, 1, fin)) {
-		if (utf_lr(&rbuf[i])) {
-			i += bom_codepage[utf_index].width;
-			break;
-		}
-		i += bom_codepage[utf_index].width;
-	}
-	if (utf_iconv == (iconv_t) -1) {
-		perror("iconv");
-		return 0;
-	}
-
-	in_bytes_left  = i;
-	out_bytes_left = len;
-	in_buf = (char*)rbuf;
-	iconv(utf_iconv, &in_buf, &in_bytes_left, &buf, &out_bytes_left);
-	len -= (int)out_bytes_left;
-	*buf = 0;
-	return len;
-}
-
-static int utf_lr(char *s)
-{
-	if ((utf_index < 0) || (bom_codepage[utf_index].width == 1)) {
-		return (*s == 0xa);
-	}
-	if (bom_codepage[utf_index].width == 2) {
-		if (bom_codepage[utf_index].endian == 0) {	/* LE */
-			return (!memcmp(s, "\xa\0", 2));
-		} else {
-			return (!memcmp(s, "\0\xa", 2));
-		}
-	}
-	if (bom_codepage[utf_index].endian == 0) {	/* LE */
-		return (!memcmp(s, "\xa\0\0\0", 4));
-	}
-	return (!memcmp(s, "\0\0\0\xa", 4));
-}
-
-static int utf_bom_detect(FILE *fin)
-{
-	char	buf[8];
-	int	i, k, n;
-
-	for (i = 0; i < 4; i++) {
-		buf[i] = (char) fgetc(fin);
-		n = i + 1;
-		for (k = 0; k < BOMLEN; k++) {
-			if (!memcmp(bom_codepage[k].magic, buf, n)) {
-				if (bom_codepage[k].magic_len > n) {
-					break;	/* partial matching */
-				}
-				return k;	/* the matching codepage */
-			}
-		}
-		if (k == BOMLEN) {	/* no match found */
-			memcpy(&bom_overflow[1], buf, n);
-			bom_overflow[0] = n;
-			break;
-		}
-        }
-        return -1;
-}
-
-static int utf_bom_user_defined(char *s)
-{
-	int	i;
-
-	for (i = 0; i < BOMLEN; i++) {
-		if (!strcasecmp(bom_codepage[i].iconv_name, s)) {
-			return i;
-		}
-	}
-	strncpy(bom_codepage[i].iconv_name, s, sizeof(bom_user_defined));
-	if (strstr(s, "16")) {
-		bom_codepage[i].width = 2;
-	} else if (strstr(s, "32")) {
-		bom_codepage[i].width = 4;
-	}
-	if (strstr(s, "BE") || strstr(s, "be")) {
-		bom_codepage[i].endian = 1;
-	}
-	return i;
 }
 
 static time_t tweaktime(time_t ms)
@@ -845,20 +667,6 @@ static int is_number(char *s)
 	return (*s > 0x20) ? 0 : 1;
 }
 
-static void utf_dump(void)
-{
-	int	n;
-
-	if ((n = utf_index) < 0) {
-		printf("encoding not defined\n");
-	} else {
-		printf("%d_ %d %8s W:%d E:%d\n", n, bom_codepage[n].magic_len,
-			bom_codepage[n].iconv_name, bom_codepage[n].width,
-			bom_codepage[n].endian);
-	}
-}
-
-
 static FILE *safe_open(char *pathname, char *mode, char **nominee)
 {
 	struct	stat	sb;
@@ -938,41 +746,6 @@ static int safe_swapname(const char *fixname, char *dyname)
 	if (rename(tmpname, dyname)) {
 		perror(dyname);
 		return -3;
-	}
-	return 0;
-}
-
-
-static int mocker(FILE *fin, char *argv)
-{
-	char	buf[1024];
-	int	n;
-
-	if (!strcmp(argv,  "--mock-bom")) {
-		n = utf_bom_detect(fin);
-		if (n < 0) {
-			printf("BOM not detected\n");
-		} else {
-			printf("BOM %s\n", bom_codepage[n].iconv_name);
-		}
-	} else if (!strcmp(argv,  "--mock-encoding")) {
-		utf_dump();
-	} else if (!strcmp(argv,  "--mock-open")) {
-		utf_open(fin, stdout, 0);
-		utf_dump();
-		utf_open(fin, stdout, 1);
-		utf_dump();
-	} else if (!strcmp(argv,  "--mock-lr")) {
-		char	*lrlst[] = { "\xa", "\xa\0", "\xa\0\0\0", "\0\xa", "\0\0\0\xa" };
-		for (n = 0; n < sizeof(lrlst)/sizeof(char*); n++) {
-			printf("LR: %02x (%ld): %s\n", *lrlst[n], (long)sizeof(lrlst[n]),
-					utf_lr(lrlst[n]) ? "true" : "false");
-		}
-	} else if (!strcmp(argv,  "--mock-readline")) {
-		utf_open(fin, stdout, 0);
-		utf_dump();
-		n = utf_readline(fin, buf, sizeof(buf)-1);
-		printf("%d %s\n", n, buf);
 	}
 	return 0;
 }

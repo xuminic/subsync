@@ -2,6 +2,8 @@
 #ifndef _SUBSYNC_UTF_H_
 #define _SUBSYNC_UTF_H_
 
+#include <iconv.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -34,6 +36,9 @@ typedef	struct		_UTFBUF	{
 	char		obuffer[UTF_MAX_BUF];
 	char		*outbuf;
 	size_t		outidx;
+
+	char		cache[UTF_MAX_BUF/4];
+	size_t		ccidx;
 } UTFB;
 
 #define UTFBUFF(u)	(sizeof((u)->ibuffer) - (u)->inidx)
@@ -42,9 +47,11 @@ typedef	struct		_UTFBUF	{
 
 UTFB *utf_open(FILE *fp, char *decode, char *encode);
 void utf_close(UTFB *utf);
-char *utf_gets(UTFB *utf, FILE *fp, char *buf, int len);
-int utf_puts(UTFB *utf, FILE *fp, char *buf);
 int utf_write_bom(UTFB *utf, FILE *fp);
+int utf_cache(UTFB *utf, FILE *fp, char *s, size_t len);
+int utf_puts(UTFB *utf, FILE *fp, char *buf);
+int utf_write(UTFB *utf, FILE *fp, char *buf, size_t len);
+char *utf_gets(UTFB *utf, FILE *fp, char *buf, int len);
 
 
 #ifdef __cplusplus

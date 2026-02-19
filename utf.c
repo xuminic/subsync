@@ -7,7 +7,6 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/param.h>
-#include <iconv.h>
 
 #include "utf.h"
 
@@ -58,6 +57,7 @@ UTFB *utf_open(FILE *fp, char *decode, char *encode)
 	utf->inidx  = 0;
 	utf->outbuf = utf->obuffer;
 	utf->outidx = sizeof(utf->obuffer);
+	utf->ccidx  = 0;
 
 	if (!decode || !*decode) {
 		utf_bom_detect(utf, fp);
@@ -144,33 +144,61 @@ int utf_write_bom(UTFB *utf, FILE *fp)
 	return -2;
 }
 
+int utf_cache(UTFB *utf, FILE *fp, char *s, size_t len)
+{
+	if (!s || !len) {	/* flush the cache */
+		if (utf->ccidx) {
+			len = utf->ccidx;
+			utf->ccidx = 0;
+			return utf_write(utf, fp, utf->cache, len);
+		}
+		return 0;
+	}
+	if (utf->ccidx + len >= sizeof(utf->cache)) {
+		utf_write(utf, fp, utf->cache, utf->ccidx);
+		utf->ccidx = 0;
+	}
+	if (utf->ccidx + len >= sizeof(utf->cache)) {
+		return utf_write(utf, fp, s, len);
+	}
+	memcpy(utf->cache + utf->ccidx, s, len);
+	utf->ccidx += len;
+	return utf->ccidx;
+}
+
+
 int utf_puts(UTFB *utf, FILE *fp, char *buf)
 {
-	size_t	n, rc, inlft, outlft;
+	return utf_write(utf, fp, buf, strlen(buf));
+}
+
+int utf_write(UTFB *utf, FILE *fp, char *buf, size_t len)
+{
+	size_t	n, rc, inleft, outleft;
 	char	*inbuf, *outbuf, lbuf[64];
 
 	if (utf->cd_enc == (iconv_t) -1) {
-		return fputs(buf, fp);
+		return fwrite(buf, 1, len, fp);
 	}
 
 	inbuf = buf;
-	inlft = strlen(buf);
-	while (inlft > 0) {
-		outlft = sizeof(lbuf);
+	inleft = len;
+	while (inleft > 0) {
+		outleft = sizeof(lbuf);
 		outbuf = lbuf;
-		rc = iconv(utf->cd_enc, &inbuf, &inlft, &outbuf, &outlft);
-		if ((n = sizeof(lbuf) - outlft) > 0) {
+		rc = iconv(utf->cd_enc, &inbuf, &inleft, &outbuf, &outleft);
+		if ((n = sizeof(lbuf) - outleft) > 0) {
 			fwrite(lbuf, 1, n, fp);
 		}
 		if (rc == (size_t) -1) {
 			if (errno == EILSEQ) {	/* illegal character */
-				inbuf++, inlft--;	/* skip one char and try again */
+				inbuf++, inleft--;	/* skip one char and try again */
 			} else if ((errno != EINVAL) && (errno != E2BIG)) {
 				break;	/* fatal error */
 			}
 		}
 	}
-	return (int)(strlen(buf) - inlft);
+	return (int)(len - inleft);
 }
 
 char *utf_gets(UTFB *utf, FILE *fp, char *buf, int len)
@@ -633,6 +661,18 @@ static int test_utf_iconv(char *decode, char *encode, FILE *fin, FILE *fout)
 	return 0;
 }
 
+static int test_utf_cache(char *decode, char *encode)
+{
+	UTFB	*utf; 
+
+	utf = utf_open(stdin, decode, encode);
+	dump_utfb(utf);
+	utf_cache(utf, stdout, "H", 1);
+	utf_cache(utf, stdout, "Hello", 3);
+	utf_cache(utf, stdout, NULL, 0);
+	utf_close(utf);
+	return 0;
+}
 
 int main(int argc, char **argv)
 {
@@ -679,6 +719,8 @@ int main(int argc, char **argv)
 			n = fread(buf, 1, sizeof(buf), stdin);
 			printf("%s\n", bin_detect(buf, n) ? "Binary" : "Text");
 			return 0;
+		} else if (!strcmp(*argv, "--cache")) {
+			test_utf_cache(NULL, NULL);
 		} else {
 			fprintf(stderr, "%s: unknown parameter.\n", *argv);
 			return -1;
