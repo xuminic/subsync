@@ -4,6 +4,7 @@ ifeq ($(PREFIX),)
 endif
 
 TARGET  = subsync
+SOURCE	= subsync.c utf.c
 VERSION = 0.13.4
 CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\" -DCFG_LIBICONV
 
@@ -15,14 +16,16 @@ all: $(TARGET)
 
 allwin: $(TARGET) libiconv $(TARGET)_i686.exe $(TARGET)_x86_64.exe
 
-$(TARGET): subsync.c utf.c
+$(TARGET): $(SOURCE)
 	gcc $(CFLAGS) -o $@ $^
 
-$(TARGET)_i686.exe: subsync.c
+$(TARGET)_i686.exe: $(SOURCE)
 	i686-w64-mingw32-gcc $(CFLAGS) $(ICONV_W32) -o $@ $^ -liconv
+	i686-w64-mingw32-objdump -p $@ | grep "DLL Name"
 
-$(TARGET)_x86_64.exe: subsync.c
+$(TARGET)_x86_64.exe: $(SOURCE)
 	x86_64-w64-mingw32-gcc $(CFLAGS) $(ICONV_W64) -o $@ $^ -liconv
+	x86_64-w64-mingw32-objdump -p $@ | grep "DLL Name"
 
 clean:
 	rm -f $(TARGET)

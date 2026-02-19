@@ -1,7 +1,6 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,6 +31,9 @@ static MMTAB *magic_search(MMTAB *mtab, char *s, int len);
 static int idname(char *s);
 
 #ifdef UTF_MAIN
+//#define WARNX(...)	fprintf(stderr, "[%s:%d] " __VA_ARGS__, __FILE__, __LINE__)
+#define WARNX(...)	fprintf(stderr, __VA_ARGS__)
+
 typedef int (*getchar_t)(FILE *);
 static getchar_t	bom_getc = fgetc;
 
@@ -41,6 +43,8 @@ static void hexdump(char *prompt, char *s, int len)
 	while (len--) printf("%02x ", (unsigned char) *s++);
 	puts("");
 }
+#else
+#define WARNX(...)	((void)0)
 #endif
 
 
@@ -223,7 +227,7 @@ char *utf_gets(UTFB *utf, FILE *fp, char *buf, int len)
 		obuf = fgets(buf + n, len - n, fp);
 		curr = ftell(fp) - curr;
 		if ((rc = bin_detect(buf, curr)) > 0) {
-			//warnx("utf_gets: binary detected %ld (%ld)", rc, curr);
+			//WARNX("utf_gets: binary detected %ld (%ld)", rc, curr);
 			return NULL;
 		}
 		return obuf;
@@ -253,12 +257,10 @@ static size_t utf_pump(UTFB *utf, FILE *fp)
 
 	n = fread(utf->ibuffer + utf->inidx, 1, UTFBUFF(utf), fp);
 	if ((rc = bin_detect(utf->ibuffer, utf->inidx + n)) > 0) {
-		//warnx("utf_pump: binary detected %ld (%ld)", rc, n);
+		WARNX("utf_pump: binary detected %ld (%ld)", rc, n);
 		return -1;
 	}
-#ifdef	UTF_MAIN
-	warnx("utf_pump: input=%ld (+%ld) output=%ld", utf->inidx, n, UTFPROD(utf));
-#endif
+	WARNX("utf_pump: input=%ld (+%ld) output=%ld", utf->inidx, n, UTFPROD(utf));
 	if (n <= 0) {
 		return 0;
 	}
@@ -287,9 +289,7 @@ static size_t utf_pump(UTFB *utf, FILE *fp)
 		/* relocate the unused chars to the head of the buffer */
 		memmove(utf->ibuffer, utf->inbuf, utf->inidx);
 	}
-#ifdef	UTF_MAIN
-	warnx("utf_pump: input=%ld  output=%ld", utf->inidx, UTFPROD(utf));
-#endif
+	WARNX("utf_pump: input=%ld  output=%ld", utf->inidx, UTFPROD(utf));
 	return UTFPROD(utf);
 }
 
@@ -311,9 +311,7 @@ static size_t utf_flush(UTFB *utf, char *buf, size_t len)
 	if (prod) {
 		memmove(utf->obuffer, utf->obuffer + i, prod);
 	}
-#ifdef	UTF_MAIN
-	warnx("utf_flush: %ld (-%ld) transferred", i, prod);
-#endif
+	WARNX("utf_flush: %ld (-%ld) transferred", i, prod);
 	return i;
 }
 
@@ -378,7 +376,7 @@ static int magic_length(MMTAB *mtab)
 	int	i, n;
 
 	for (i = n = 0; mtab[i].magic_name; i++) {
-		n = MAX(mtab[i].magic_len, n);
+		n = (mtab[i].magic_len > n) ? mtab[i].magic_len : n;
 	}
 	return n;
 }
@@ -460,12 +458,12 @@ static int idname(char *s)
 
 static void dump_utfb(UTFB *utf) 
 {
-	warnx("iconv decoder:          %p", utf->cd_dec);
-	warnx("iconv decode name:      %s", utf->na_dec[0] ? utf->na_dec : "unknown");
-	warnx("iconv encoder:          %p", utf->cd_enc);
-	warnx("iconv encode name:      %s", utf->na_enc[0] ? utf->na_enc : "unknown");
-	warnx("input buffer:           %ld (%d)", utf->inidx, (int)(utf->inbuf - utf->ibuffer));
-	warnx("output buffer:          %ld (%d)", utf->outidx, (int)(utf->outbuf - utf->obuffer));
+	WARNX("iconv decoder:          %p", utf->cd_dec);
+	WARNX("iconv decode name:      %s", utf->na_dec[0] ? utf->na_dec : "unknown");
+	WARNX("iconv encoder:          %p", utf->cd_enc);
+	WARNX("iconv encode name:      %s", utf->na_enc[0] ? utf->na_enc : "unknown");
+	WARNX("input buffer:           %ld (%d)", utf->inidx, (int)(utf->inbuf - utf->ibuffer));
+	WARNX("output buffer:          %ld (%d)", utf->outidx, (int)(utf->outbuf - utf->obuffer));
 }
 
 
