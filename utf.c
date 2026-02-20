@@ -9,9 +9,6 @@
 
 #include "utf.h"
 
-#define StrNCmp(a,b)	strncmp((a),(b),strlen(b))
-#define StrNCpy(a,b,c)	strncpy((a),(b),(c)-1)
-
 static	MMTAB	bom_codepage[] = {
 	{ "\xEF\xBB\xBF",	3,	"UTF-8" },
 	{ "\xFE\xFF",		2,	"UTF-16BE" },
@@ -24,27 +21,15 @@ static	MMTAB	bom_codepage[] = {
 static size_t utf_pump(UTFB *utf, FILE *fp);
 static size_t utf_flush(UTFB *utf, char *buf, size_t len);
 static int utf_bom_detect(UTFB *utf, FILE *fp);
-static int bin_detect(char *s, size_t len);
+static int utf_bin_detect(UTFB *utf, char *s, size_t len);
 static int magic_length(MMTAB *mtab);
 static int magic_match(MMTAB *mtab, char *s, int len);
 static MMTAB *magic_search(MMTAB *mtab, char *s, int len);
 static int idname(char *s);
 
 #ifdef UTF_MAIN
-//#define WARNX(...)	fprintf(stderr, "[%s:%d] " __VA_ARGS__, __FILE__, __LINE__)
-#define WARNX(...)	fprintf(stderr, __VA_ARGS__)
-
 typedef int (*getchar_t)(FILE *);
 static getchar_t	bom_getc = fgetc;
-
-static void hexdump(char *prompt, char *s, int len)
-{
-	printf("%s", prompt ? prompt : "");
-	while (len--) printf("%02x ", (unsigned char) *s++);
-	puts("");
-}
-#else
-#define WARNX(...)	((void)0)
 #endif
 
 
@@ -167,6 +152,7 @@ int utf_cache(UTFB *utf, FILE *fp, char *s, size_t len)
 	}
 	memcpy(utf->cache + utf->ccidx, s, len);
 	utf->ccidx += len;
+	//utf->cache[utf->ccidx] = 0;
 	return utf->ccidx;
 }
 
@@ -196,7 +182,9 @@ int utf_write(UTFB *utf, FILE *fp, char *buf, size_t len)
 		}
 		if (rc == (size_t) -1) {
 			if (errno == EILSEQ) {	/* illegal character */
-				inbuf++, inleft--;	/* skip one char and try again */
+				inleft--;	/* skip one char and try again */
+				inbuf++;
+				utf->enc_err++;
 			} else if ((errno != EINVAL) && (errno != E2BIG)) {
 				break;	/* fatal error */
 			}
@@ -226,8 +214,8 @@ char *utf_gets(UTFB *utf, FILE *fp, char *buf, int len)
 		curr = ftell(fp);
 		obuf = fgets(buf + n, len - n, fp);
 		curr = ftell(fp) - curr;
-		if ((rc = bin_detect(buf, curr)) > 0) {
-			//WARNX("utf_gets: binary detected %ld (%ld)", rc, curr);
+		if ((rc = utf_bin_detect(utf, buf, curr)) > 0) {
+			//WARNX("utf_gets: binary detected %ld (%ld)\n", rc, curr);
 			return NULL;
 		}
 		return obuf;
@@ -251,21 +239,30 @@ char *utf_gets(UTFB *utf, FILE *fp, char *buf, int len)
 	return obuf;
 }
 
+void hexdump(char *prompt, char *s, int len)
+{
+	printf("%s", prompt ? prompt : "");
+	while (len--) printf("%02x ", (unsigned char) *s++);
+	puts("");
+}
+
+
 static size_t utf_pump(UTFB *utf, FILE *fp)
 {
 	size_t	n, rc;
 
 	n = fread(utf->ibuffer + utf->inidx, 1, UTFBUFF(utf), fp);
-	if ((rc = bin_detect(utf->ibuffer, utf->inidx + n)) > 0) {
-		WARNX("utf_pump: binary detected %ld (%ld)", rc, n);
+	WARNX("utf_pump: input=%ld (+%ld) output=%ld\n", utf->inidx, n, UTFPROD(utf));
+	if (n <= 0) {
+		return 0;	/* the remains in the iconv buffer cannot decode anyway */
+	}
+
+	utf->inidx += n;
+	if ((rc = utf_bin_detect(utf, utf->ibuffer, utf->inidx)) > 0) {
+		WARNX("utf_pump: binary detected %ld (%ld)\n", rc, n);
 		return -1;
 	}
-	WARNX("utf_pump: input=%ld (+%ld) output=%ld", utf->inidx, n, UTFPROD(utf));
-	if (n <= 0) {
-		return 0;
-	}
 	
-	utf->inidx += n;
 	utf->inbuf = utf->ibuffer;
 	while (utf->inidx > 0) {
 		rc = iconv(utf->cd_dec, &utf->inbuf, &utf->inidx, &utf->outbuf, &utf->outidx);
@@ -276,6 +273,7 @@ static size_t utf_pump(UTFB *utf, FILE *fp)
 			break;	/* ignore EINVAL and E2BIG */
 		} else {	/* illegal char */
 			//perror("utf_pump");
+			utf->dec_err++;
 			if (utf->outidx > 3) {
 				memcpy(utf->outbuf, "\xEF\xBF\xBD", 3);
 				utf->outbuf += 3;
@@ -289,7 +287,7 @@ static size_t utf_pump(UTFB *utf, FILE *fp)
 		/* relocate the unused chars to the head of the buffer */
 		memmove(utf->ibuffer, utf->inbuf, utf->inidx);
 	}
-	WARNX("utf_pump: input=%ld  output=%ld", utf->inidx, UTFPROD(utf));
+	WARNX("utf_pump: input=%ld  output=%ld\n", utf->inidx, UTFPROD(utf));
 	return UTFPROD(utf);
 }
 
@@ -311,7 +309,7 @@ static size_t utf_flush(UTFB *utf, char *buf, size_t len)
 	if (prod) {
 		memmove(utf->obuffer, utf->obuffer + i, prod);
 	}
-	WARNX("utf_flush: %ld (-%ld) transferred", i, prod);
+	WARNX("utf_flush: %ld (-%ld) transferred\n", i, prod);
 	return i;
 }
 
@@ -354,9 +352,16 @@ static int utf_bom_detect(UTFB *utf, FILE *fp)
 	return 0;
 }
 
-static int bin_detect(char *s, size_t len)
+
+static int utf_bin_detect(UTFB *utf, char *s, size_t len)
 {
 	int	i, acc;
+
+	/* only detecting the first 1Kb */
+	if (utf) {
+		if (utf->bin_acc > 1024) return 0;
+		utf->bin_acc += len;
+	}
 
 	for (i = acc = 0; len; len--, s++, i++) {
 		if (*s == 0) {
@@ -365,12 +370,13 @@ static int bin_detect(char *s, size_t len)
 			acc = 0;
 		}
 		if (acc > 4) {
+			if (utf) utf->bin_err = 1;
 			return i;
 		}
 	}
 	return 0;
 }
-	
+
 static int magic_length(MMTAB *mtab)
 {
 	int	i, n;
@@ -448,22 +454,14 @@ static int idname(char *s)
 
 #ifdef	UTF_MAIN
 
-#define MOREARG(c,v)    {       \
-        --(c), ++(v); \
-        if (((c) == 0) || (**(v) == '-') || (**(v) == '+')) { \
-                fprintf(stderr, "missing parameters\n"); \
-                return -1; \
-        }\
-}
-
 static void dump_utfb(UTFB *utf) 
 {
-	WARNX("iconv decoder:          %p", utf->cd_dec);
-	WARNX("iconv decode name:      %s", utf->na_dec[0] ? utf->na_dec : "unknown");
-	WARNX("iconv encoder:          %p", utf->cd_enc);
-	WARNX("iconv encode name:      %s", utf->na_enc[0] ? utf->na_enc : "unknown");
-	WARNX("input buffer:           %ld (%d)", utf->inidx, (int)(utf->inbuf - utf->ibuffer));
-	WARNX("output buffer:          %ld (%d)", utf->outidx, (int)(utf->outbuf - utf->obuffer));
+	WARNX("iconv decoder:          %p\n", utf->cd_dec);
+	WARNX("iconv decode name:      %s\n", utf->na_dec[0] ? utf->na_dec : "unknown");
+	WARNX("iconv encoder:          %p\n", utf->cd_enc);
+	WARNX("iconv encode name:      %s\n", utf->na_enc[0] ? utf->na_enc : "unknown");
+	WARNX("input buffer:           %ld (%d)\n", utf->inidx, (int)(utf->inbuf - utf->ibuffer));
+	WARNX("output buffer:          %ld (%d)\n", utf->outidx, (int)(utf->outbuf - utf->obuffer));
 }
 
 
@@ -715,7 +713,7 @@ int main(int argc, char **argv)
 			return test_utf_iconv(dec, enc, stdin, stdout);
 		} else if (!strcmp(*argv, "--bin-detec")) {
 			n = fread(buf, 1, sizeof(buf), stdin);
-			printf("%s\n", bin_detect(buf, n) ? "Binary" : "Text");
+			printf("%s\n", utf_bin_detect(NULL, buf, n) ? "Binary" : "Text");
 			return 0;
 		} else if (!strcmp(*argv, "--cache")) {
 			test_utf_cache(NULL, NULL);

@@ -5,8 +5,8 @@ endif
 
 TARGET  = subsync
 SOURCE	= subsync.c utf.c
-VERSION = 0.13.4
-CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\" -DCFG_LIBICONV
+VERSION = 1.0.0
+CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\" -DCFG_LIBICONV #-DDEBUG
 
 LIBICONV = libiconv-1.18
 ICONV_W32 = -I./$(LIBICONV)_i686/include -L./$(LIBICONV)_i686/lib/.libs

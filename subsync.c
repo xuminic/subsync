@@ -142,14 +142,6 @@ static int safe_swapname(const char *fixname, char *dyname);
 static int help_tools(int argc, char **argv);
 static void test_str_to_ms(void);
 
-#define MOREARG(c,v)	{	\
-	--(c), ++(v); \
-	if (((c) == 0) || (**(v) == '-') || (**(v) == '+')) { \
-		fprintf(stderr, "missing parameters\n"); \
-		return -1; \
-	}\
-}
-
 
 int main(int argc, char **argv)
 {
@@ -275,12 +267,13 @@ static int retiming(FILE *fin, FILE *fout)
 
 	srtsn = tm_srtsn;
 	while (utf_gets(utf, fin, buf, sizeof(buf)-1)) {
+		WARNX("utf_gets: %s\n", buf);
 		if (chop_filter(buf, &magic)) {
 			continue;	/* skip the specified subtitles */
 		}
 
 		/* skip and output the whitespaces */
-		for (s = buf; (*s > 0) && (*s <= 0x20); s++) utf_cache(utf, fout, s, 1);
+		for (s = buf; isspace(*s); s++) utf_cache(utf, fout, s, 1);
 		
 		/* SRT: 00:02:17,440 --> 00:02:20,375
 		 * ASS: Dialogue: Marked=0,0:02:42.42,0:02:44.15,Wolf main,
@@ -306,6 +299,13 @@ static int retiming(FILE *fin, FILE *fout)
 			/* output the tweaked timestamp */
 			p = mstostr(tweaktime(ms), style);
 			utf_cache(utf, fout, p, strlen(p));
+		} else if (is_number(s)) {	/* SRT serial number */
+			if (srtsn > 0) {
+				/* SRT serial numbers to be re-ordered */
+				sprintf(tmp, "%d", srtsn++);
+				utf_cache(utf, fout, tmp, strlen(tmp));
+				while (isdigit(*s)) s++;
+			}
 		} else if ((ms = strtoms(s, &n, &style)) != -1) {	/* SRT timestamp */
 			/* skip the first timestamp */
 			s += n;
@@ -321,17 +321,14 @@ static int retiming(FILE *fin, FILE *fout)
 			/* output the tweaked timestamp */
 			p = mstostr(tweaktime(ms), style);
 			utf_cache(utf, fout, p, strlen(p));
-		} else if ((srtsn > 0) && is_number(s)) {
-			/* SRT serial numbers to be re-ordered */
-			sprintf(tmp, "%d", srtsn++);
-			utf_cache(utf, fout, tmp, strlen(tmp));
-			while (isdigit(*s)) s++;
 		} 
 		/* output rest of things */
 		utf_cache(utf, fout, s, strlen(s));
 		utf_cache(utf, fout, NULL, 0);
 	}
-
+	if (utf->bin_err) {
+		fprintf(stderr, "Binary file detected.\n");
+	}
 	utf_close(utf);
 	return 0;
 }

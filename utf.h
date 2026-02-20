@@ -4,16 +4,12 @@
 
 #include <iconv.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define UTF_MAX_BUF	4096
 #define APP_MAX_BUF	(UTF_MAX_BUF / 4)
 
-#define UTF_BIG_ENDIAN	0
-#define UTF_LIT_ENDIAN	1
-#define UTF_TRY_ENDIAN	2
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct  _MMTAB  {
 	char    *magic;
@@ -21,13 +17,17 @@ typedef struct  _MMTAB  {
 	char    *magic_name;
 } MMTAB;
 
-
 typedef	struct		_UTFBUF	{
 	iconv_t		cd_dec;
 	char		na_dec[64];	/* decode by bom_codepage */
+	int		dec_err;
 
 	iconv_t		cd_enc;
 	char		na_enc[64];	/* like UTF-16BE for iconv */
+	int		enc_err;
+
+	int		bin_acc;
+	int		bin_err;
 
 	char		ibuffer[UTF_MAX_BUF/4];
 	char		*inbuf;
@@ -52,11 +52,29 @@ int utf_cache(UTFB *utf, FILE *fp, char *s, size_t len);
 int utf_puts(UTFB *utf, FILE *fp, char *buf);
 int utf_write(UTFB *utf, FILE *fp, char *buf, size_t len);
 char *utf_gets(UTFB *utf, FILE *fp, char *buf, int len);
-
+void hexdump(char *prompt, char *s, int len);
 
 #ifdef __cplusplus
 }
 #endif
+
+#ifdef DEBUG
+  //#define WARNX(...)    fprintf(stderr, "[%s:%d] " __VA_ARGS__, __FILE__, __LINE__)
+  #define WARNX(...)      fprintf(stderr, __VA_ARGS__)
+#else
+  #define WARNX(...)      ((void)0)
+#endif
+
+#define MOREARG(c,v)    {       \
+        --(c), ++(v); \
+        if (((c) == 0) || (**(v) == '-') || (**(v) == '+')) { \
+                fprintf(stderr, "missing parameters\n"); \
+                return -1; \
+        }\
+}
+
+#define StrNCmp(a,b)    strncmp((a),(b),strlen(b))
+#define StrNCpy(a,b,c)  strncpy((a),(b),(c)-1)
 
 #endif	/* _SUBSYNC_UTF_H_ */
 
