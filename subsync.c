@@ -47,6 +47,7 @@ OPTION:\n\
   -c, --chop N:M         chop the specified number of subtitles (from 1)\n\
   -d, --decoding DECODE  specifies the decoding (iconv name)\n\
   -e, --encoding ENCODE  specifies the encoding (iconv name)\n\
+      --same-coding      specifies the encoding following decoding\n\
   -o                     overwrite the original file (no backup file)\n\
       --overwrite        overwrite the original file (has backup file)\n\
   -r, --reorder [NUM]    reorder the serial number (SRT only)\n\
@@ -127,6 +128,7 @@ int	tm_overwrite = 0;	/* 1: overwrite  2: overwrite and backup */
 
 char	*g_decode = NULL;
 char	*g_encode = NULL;
+int	g_same_code = 0;	/* by default we output UTF-8 */
 
 static int retiming(FILE *fin, FILE *fout);
 static time_t tweaktime(time_t ms);
@@ -172,6 +174,8 @@ int main(int argc, char **argv)
 		} else if (!strcmp(*argv, "-e") || !strcmp(*argv, "--encoding")) {
 			MOREARG(argc, argv);
 			g_encode = *argv;
+		} else if (!strncmp(*argv, "--same-coding", 6)) {
+			g_same_code = 1;
 		} else if (!strcmp(*argv, "-r") || !strcmp(*argv, "--reorder")) {
 			if ((argc > 0) && is_number(argv[1])) {
 				--argc;	tm_srtsn = (int)strtol(*++argv, NULL, 0);
@@ -262,6 +266,9 @@ static int retiming(FILE *fin, FILE *fout)
 
 	if ((utf = utf_open(fin, g_decode, g_encode)) == NULL) {
 		return -1;
+	}
+	if (!g_same_code && !g_encode) {
+		utf->na_enc[0] = 0;	/* force UTF-8 output */
 	}
 	utf_write_bom(utf, fout);
 

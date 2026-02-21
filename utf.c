@@ -341,6 +341,9 @@ static int utf_bom_detect(UTFB *utf, FILE *fp)
 	
 	StrNCpy(utf->na_dec, mtab->magic_name, sizeof(utf->na_dec));
 
+	/* assume the input and output the same coding */
+	StrNCpy(utf->na_enc, mtab->magic_name, sizeof(utf->na_enc));
+
 	/* since the BOM is included in the input stream,
 	 * we must NOT specify the endianness in the iconv name,
 	 * otherwise iconv will produce double BOM output */
@@ -456,12 +459,12 @@ static int idname(char *s)
 
 static void dump_utfb(UTFB *utf) 
 {
-	WARNX("iconv decoder:          %p\n", utf->cd_dec);
-	WARNX("iconv decode name:      %s\n", utf->na_dec[0] ? utf->na_dec : "unknown");
-	WARNX("iconv encoder:          %p\n", utf->cd_enc);
-	WARNX("iconv encode name:      %s\n", utf->na_enc[0] ? utf->na_enc : "unknown");
-	WARNX("input buffer:           %ld (%d)\n", utf->inidx, (int)(utf->inbuf - utf->ibuffer));
-	WARNX("output buffer:          %ld (%d)\n", utf->outidx, (int)(utf->outbuf - utf->obuffer));
+	fprintf(stderr, "iconv decoder:          %p\n", utf->cd_dec);
+	fprintf(stderr, "iconv decode name:      %s\n", utf->na_dec[0] ? utf->na_dec : "unknown");
+	fprintf(stderr, "iconv encoder:          %p\n", utf->cd_enc);
+	fprintf(stderr, "iconv encode name:      %s\n", utf->na_enc[0] ? utf->na_enc : "unknown");
+	fprintf(stderr, "input buffer:           %ld (%d)\n", utf->inidx, (int)(utf->inbuf - utf->ibuffer));
+	fprintf(stderr, "output buffer:          %ld (%d)\n", utf->outidx, (int)(utf->outbuf - utf->obuffer));
 }
 
 

@@ -565,3 +565,45 @@ $ subsync -s 10:12 -3500 -o S01E12-*.ass
 $ subsync -s 10:12 +500 -o S01E12-*.ass
 ```
 
+
+## 再造人卡辛 (Casshern Sins)
+One characteristic of Casshern Sins is that each episode begins with 
+an opening segment of varying length (around a dozen seconds), followed 
+by the OP, and then the main content.
+
+Obviously, the OP in the Blu-ray version does not match the subtitled
+version. If you delay the timeline after the OP by 1 minute and 30 seconds, 
+the main content will be synchronized.
+
+The problem is that the opening segment is of different lengths in each 
+episode, so every subtitle file must be handled individually.
+A simple approach is to open each original subtitle file one by one and
+examine the beginning portion:
+
+```
+Dialogue: 0,0:01:42.93,0:01:51.20,staff,NTP,0000,0000,0000,,{\a6\fad(100,200)}翻譯 十六夜剎那 後期 秋月 暮葉 OPED歌詞協力 灰羽
+Dialogue: 0,0:00:02.94,0:00:03.81,*Default,NTP,0000,0000,0000,,你是？
+Dialogue: 0,0:00:04.56,0:00:05.98,*Default,NTP,0000,0000,0000,,我是卡辛
+Dialogue: 0,0:00:08.12,0:00:11.20,*Default,NTP,0000,0000,0000,,露娜 殺了妳
+Dialogue: 0,0:00:00.00,0:00:00.00,*Default,NTP,0000,0000,0000,,//-------------------OP-------------------
+Dialogue: 0,0:01:01.98,0:01:06.00,*Default,NTP,0000,0000,0000,,從那天開始的 毀滅
+Dialogue: 0,0:01:07.39,0:01:09.92,*Default,NTP,0000,0000,0000,,從殺死露娜的那一瞬間開始
+```
+
+The last line of dialogue before the OP starts at 0:00:08.12 and ends at 0:00:11.20. The next line begins at 0:01:01.98. Therefore, the interval from 0:00:12 to 0:01:01 is a possible adjustment range:
+```
+subsync -o -s 0:0:12 +0:1:30 S01E01*.ass
+```
+
+The complete processing workflow looks like this:
+```
+subsync -o -s 0:0:12 +0:1:30 S01E02*.ass
+subsync -o -s 0:0:12 +0:1:30 S01E03*.ass
+subsync -o -s 0:0:12 +0:1:30 S01E04*.ass
+subsync -o -s 0:0:24 +0:1:30 S01E05*.ass
+```
+
+
+
+
+
