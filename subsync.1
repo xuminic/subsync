@@ -26,23 +26,45 @@ The index counts from 1 and the chopping range includes the start and end index.
 The index indicates each line of subtitles with time stamps.
 
 .TP
-.BR \-e , " \-\-encoding"
-set default encoding of the input files.
+.BR \-d , " \-\-decoding"
+specify the encoding of the input files. 
 .B subsync
-normally passthrough the input files to the output files, which means changing
-codepages is not necessary. However, some files encoded by 16-bit or 32-bit units
-would break the libc stream input, like UTF-16 or UTF-32. In that case
-.B subsync
-will convert the input files to UTF-8 before adjusting the subtitles.
-.B subsync
-can auto-detect the encoding of the input file, yet if the BOM were missing,
-you need to specify the default encoding by
-.I \-e , " \-\-encoding"
-option. The encoding character sets is same to the 
+can automatically detect common UTF encodings, but if the file uses another encoding
+or the 
+.B BOM
+is missing, you need to specify the encoding explicitly using 
+.I \-d , " \-\-decoding"
+option. The encoding names are the same as those used by 
 .B iconv(1).
 Use 
 .I iconv " \-\-list"
 to see the full list.
+
+.TP
+.BR \-e , " \-\-encoding"
+specify the encoding of the output subtitle file. 
+.B subsync
+outputs
+.B UTF-8
+by default. If you would like to use a different encoding, 
+you can specify it with
+.I \-e , " \-\-encoding"
+option. Please note that due to character set limitations, 
+not all encodings can represent every character from UTF-8.
+The encoding character sets is same to the 
+.B iconv(1).
+Use 
+.I iconv " \-\-list"
+to see the full list.
+
+.TP
+.BR "   " " \-\-same\-coding"
+Keep the subtitle file in the same encoding as the input. 
+.B subsync
+outputs
+.B UTF-8
+by default. If you would like the output encoding to match the input encoding, 
+please use this option.
 
 .TP
 .BR \-o , " \-\-overwrite"
@@ -120,21 +142,6 @@ ignores the positive or negative sign in this option.
 .TP
 .BR "\-\-help" , " \-\-version" , " \-\-help\-example"
 Helps and examples.
-
-.TP
-.BR "\-\-help\-subtract"
-calculate the time offset.
-Debug purpose but might be useful.
-
-.TP
-.BR "\-\-help\-divide"
-calculate the scale ratio of time stamps.
-Debug purpose but might be useful.
-
-.TP
-.BR "\-\-help\-strtoms"
-test reading the time stamps.
-Debug purpose but might be useful.
 
 
 .SH "TIME STAMP"

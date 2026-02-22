@@ -13,7 +13,7 @@ endif
 LIBICONV = libiconv-1.18
 TARGET  = subsync
 SOURCE	= subsync.c utf.c
-VERSION = 1.0.0
+VERSION = 1.0.1
 CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\" -DCFG_LIBICONV #-DDEBUG
 
 ICONV_W32   = -I./$(LIBICONV)_i686/include -L./$(LIBICONV)_i686/lib/.libs
@@ -61,7 +61,7 @@ release: release-src release-win
 
 release-src:
 	mkdir $(TARGET)-$(VERSION)
-	cp LICENSE Makefile README* subsync.1 subsync.c $(TARGET)-$(VERSION)
+	cp LICENSE Makefile README* subsync.1 *.c *.h $(TARGET)-$(VERSION)
 	tar czf $(TARGET)-$(VERSION).tar.gz $(TARGET)-$(VERSION)
 	rm -rf $(TARGET)-$(VERSION)
 
