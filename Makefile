@@ -5,11 +5,9 @@ endif
 
 
 ifeq ($(OS), Windows_NT)
-MINGW	= $(LIBICONV)
-LDFLAG	= -I./$(LIBICONV)/include -L./$(LIBICONV)/lib/.libs
-else
-MINGW	=
-LDFLAG	=
+MINGWDEPS = $(LIBICONV)
+MINGWFLAG = -I./$(LIBICONV)/include -L./$(LIBICONV)/lib/.libs
+MINGWLIBS = -liconv
 endif
 
 LIBICONV = libiconv-1.18
@@ -26,8 +24,8 @@ all: $(TARGET)
 # For cross-building Win32 and Win64 targets in Linux
 allwin: $(TARGET) $(TARGET)_i686.exe $(TARGET)_x86_64.exe
 
-$(TARGET): $(MINGW) $(SOURCE)
-	gcc $(CFLAGS) $(LDFLAG) -o $@ $(SOURCE) -liconv
+$(TARGET): $(MINGWDEPS) $(SOURCE)
+	gcc $(CFLAGS) $(MINGWFLAG) -o $@ $(SOURCE) $(MINGWLIBS)
 	ldd $(TARGET)
 
 $(TARGET)_i686.exe:  $(LIBICONV)_i686 $(SOURCE)
