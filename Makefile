@@ -3,32 +3,43 @@ ifeq ($(PREFIX),)
 	PREFIX := /usr/local
 endif
 
+
+ifeq ($(OS), Windows_NT)
+MINGW	= $(LIBICONV)
+LDFLAG	= -I./$(LIBICONV)/include -L./$(LIBICONV)/lib/.libs
+else
+MINGW	=
+LDFLAG	=
+endif
+
+LIBICONV = libiconv-1.18
 TARGET  = subsync
 SOURCE	= subsync.c utf.c
 VERSION = 1.0.0
 CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\" -DCFG_LIBICONV #-DDEBUG
 
-LIBICONV = libiconv-1.18
-ICONV_W32 = -I./$(LIBICONV)_i686/include -L./$(LIBICONV)_i686/lib/.libs
-ICONV_W64 = -I./$(LIBICONV)_x86_64/include -L./$(LIBICONV)_x86_64/lib/.libs
+ICONV_W32   = -I./$(LIBICONV)_i686/include -L./$(LIBICONV)_i686/lib/.libs
+ICONV_W64   = -I./$(LIBICONV)_x86_64/include -L./$(LIBICONV)_x86_64/lib/.libs
 
 all: $(TARGET)
 
-allwin: $(TARGET) libiconv $(TARGET)_i686.exe $(TARGET)_x86_64.exe
+# For cross-building Win32 and Win64 targets in Linux
+allwin: $(TARGET) $(TARGET)_i686.exe $(TARGET)_x86_64.exe
 
-$(TARGET): $(SOURCE)
-	gcc $(CFLAGS) -o $@ $^
+$(TARGET): $(MINGW) $(SOURCE)
+	gcc $(CFLAGS) $(LDFLAG) -o $@ $(SOURCE) -liconv
+	ldd $(TARGET)
 
-$(TARGET)_i686.exe: $(SOURCE)
-	i686-w64-mingw32-gcc $(CFLAGS) $(ICONV_W32) -o $@ $^ -liconv
+$(TARGET)_i686.exe:  $(LIBICONV)_i686 $(SOURCE)
+	i686-w64-mingw32-gcc $(CFLAGS) $(ICONV_W32) -o $@ $(SOURCE) -liconv
 	i686-w64-mingw32-objdump -p $@ | grep "DLL Name"
 
-$(TARGET)_x86_64.exe: $(SOURCE)
-	x86_64-w64-mingw32-gcc $(CFLAGS) $(ICONV_W64) -o $@ $^ -liconv
+$(TARGET)_x86_64.exe: $(LIBICONV)_x86_64 $(SOURCE)
+	x86_64-w64-mingw32-gcc $(CFLAGS) $(ICONV_W64) -o $@ $(SOURCE) -liconv
 	x86_64-w64-mingw32-objdump -p $@ | grep "DLL Name"
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(TARGET).exe
 	rm -f $(TARGET)_i686.exe $(TARGET)_x86_64.exe
 
 cleanall: clean
@@ -66,8 +77,6 @@ release-clean:
 	rm -f $(TARGET)-$(VERSION).tar.gz $(TARGET)-$(VERSION)-win.zip
 
 
-libiconv: $(LIBICONV)_i686 $(LIBICONV)_x86_64
-
 $(LIBICONV)_i686: $(LIBICONV).tar.gz
 	tar zxf $(LIBICONV).tar.gz
 	mv $(LIBICONV) $(LIBICONV)_i686
@@ -78,7 +87,13 @@ $(LIBICONV)_x86_64: $(LIBICONV).tar.gz
 	mv $(LIBICONV) $(LIBICONV)_x86_64
 	(cd $(LIBICONV)_x86_64; ./configure --host=x86_64-w64-mingw32 --enable-static --disable-shared; make)
 
+$(LIBICONV): $(LIBICONV).tar.gz
+	tar zxf $(LIBICONV).tar.gz
+	(cd $(LIBICONV); ./configure --enable-static --disable-shared; make)
+
 $(LIBICONV).tar.gz:
-	wget https://ftp.gnu.org/pub/gnu/libiconv/$(LIBICONV).tar.gz
+	# somehow wget is broken in MSYS. Using curl instead
+	#wget https://ftp.gnu.org/pub/gnu/libiconv/$(LIBICONV).tar.gz
+	curl -o $@ https://ftp.gnu.org/pub/gnu/libiconv/$(LIBICONV).tar.gz
 
 
