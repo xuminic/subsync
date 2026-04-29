@@ -313,7 +313,7 @@ static int retiming(FILE *fin, FILE *fout)
 				utf_cache(utf, fout, tmp, strlen(tmp));
 				while (isdigit(*s)) s++;
 			}
-		} else if ((ms = strtoms(s, &n, &style)) != -1) {	/* SRT timestamp */
+		} else if ((ms = strtoms(s, &n, &style)) != (time_t) -1) {	/* SRT timestamp */
 			/* skip the first timestamp */
 			s += n;
 			/* output the tweaked timestamp */
@@ -400,7 +400,7 @@ static int chop_filter(char *s, int *magic)
 		if (is_number(s)) {
 			*magic = 0;
 			subidx++;
-		} else if (strtoms(s, NULL, NULL) != -1) {       /* SRT timestamp */
+		} else if (strtoms(s, NULL, NULL) != (time_t) -1) {       /* SRT timestamp */
 			*magic = 0;
 			subidx++;
 		} else if (!strncmp(s, "[Events]", 8)) {
@@ -448,12 +448,10 @@ static time_t strtoms(char *s, int *len, int *style)
 	}
 	for (i = 0; i < 4; i++, s++) {
 		while (isspace(*s)) s++;
-		if (ISTMSEP(*s)) {
-			tm[i] = 0;
-		} else if (isdigit(*s)) {
+		if (isdigit(*s)) {
 			tm[i] = (int) strtol(s, &s, 10);
 		} else {
-			break;
+			return (time_t) -1;
 		}
 		if (len) {
 			*len = (int)(s - begin);
@@ -603,11 +601,11 @@ static double arg_scale(char *s)
 	if (strchr(s, '/')) {
 		time_t	mf, mt;
 
-		if ((mf = strtoms(s, NULL, NULL)) == -1) {
+		if ((mf = strtoms(s, NULL, NULL)) == (time_t) -1) {
 			return 0.0;
 		}
 		s = strchr(s, '/');
-		if ((mt = strtoms(++s, NULL, NULL)) == -1) {
+		if ((mt = strtoms(++s, NULL, NULL)) == (time_t) -1) {
 			return 0.0;
 		}
 		return (double)mf / (double)mt;
@@ -640,18 +638,18 @@ static time_t arg_offset(char *s)
 	/* seperate the form -01:44:31,660-01:44:30,290 from -01:44:31,660 */
 	if (strchr(s+1, '-')) {
 		s++;	/* ignore the switch charactor '+' or '-' */
-		if ((ms = strtoms(s, NULL, NULL)) == -1) {
+		if ((ms = strtoms(s, NULL, NULL)) == (time_t) -1) {
 			return -1;
 		}
 		s = strchr(s, '-');
-		if (strtoms(++s, NULL, NULL) == -1) {
+		if (strtoms(++s, NULL, NULL) == (time_t) -1) {
 			return -1;
 		}
 		ms -= strtoms(s, NULL, NULL);
 		return ms;
 	}
 	/* process the form of [+-]01:44:31,660 */
-	if ((ms = strtoms(s, NULL, NULL)) != -1) {
+	if ((ms = strtoms(s, NULL, NULL)) != (time_t) -1) {
 		return ms;
 	}
 	/* or it's simply a number by milliseconds [+-]134600 */

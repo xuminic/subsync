@@ -13,7 +13,7 @@ endif
 LIBICONV = libiconv-1.18
 TARGET  = subsync
 SOURCE	= subsync.c utf.c
-VERSION = 1.0.1
+VERSION = 1.0.2
 CFLAGS	= -Wall -O3 -DVERSION=\"$(VERSION)\" -DCFG_LIBICONV #-DDEBUG
 
 ICONV_W32   = -I./$(LIBICONV)_i686/include -L./$(LIBICONV)_i686/lib/.libs
